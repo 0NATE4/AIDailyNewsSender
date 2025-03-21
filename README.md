@@ -1,10 +1,10 @@
 # Daily AI LinkedIn Post Generator
 
-Automatically generates engaging LinkedIn posts about the latest AI news from tldr.tech, with a focus on responsible AI development and certification.
+Automatically generates engaging LinkedIn posts about the latest AI news, with a focus on responsible AI development and certification.
 
 ## Features
 
-- Fetches daily AI news from tldr.tech
+- Fetches daily AI news
 - Generates three focused LinkedIn posts using Google's Gemini AI:
   - AI Security & Safety
   - AI in Healthcare
