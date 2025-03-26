@@ -88,7 +88,7 @@ Guidelines:
 1. Begin with an engaging hook that captures the core theme of the article.
 2. Summarise the main point or breakthrough, highlighting its relevance or potential impact.
 3. Briefly reflect on why this development matters in the context of ethical, safe, or transparent AI.
-4. Tie it back to responsible.ai, and its mission of supporting responsible, standards-based AI certification — only if relevant.
+4. Tie it back to responsble.ai, and its mission of supporting responsible, standards-based AI certification.
 5. End with a thoughtful question that invites discussion.
 6. Keep it around 200 words.
 7. Use 2 relevant hashtags and 1 well-placed emoji.
