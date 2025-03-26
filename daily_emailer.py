@@ -24,7 +24,7 @@ RECIPIENT_EMAIL = os.getenv('RECIPIENT_EMAIL')
 def get_tldr_articles():
     try:
         # Get today's date in the required format
-        today = datetime.now()
+        today = datetime.now() - timedelta(days=1)
         date_str = today.strftime("%Y-%m-%d")
         
         url = f"https://tldr.tech/ai/{date_str}"
@@ -88,9 +88,9 @@ Guidelines:
 1. Begin with an engaging hook that captures the core theme of the article.
 2. Summarise the main point or breakthrough, highlighting its relevance or potential impact.
 3. Briefly reflect on why this development matters in the context of ethical, safe, or transparent AI.
-4. Tie it back to Responsible.ai's mission of supporting responsible, standards-based AI certification — only if relevant.
+4. Tie it back to responsible.ai, and its mission of supporting responsible, standards-based AI certification — only if relevant.
 5. End with a thoughtful question that invites discussion.
-6. Keep it around 150 words.
+6. Keep it around 200 words.
 7. Use 2 relevant hashtags and 1 well-placed emoji.
 
 Tone: Authentic, clear, and conversational — like a seasoned Australian copywriter writing for a professional but curious audience. No "-"
@@ -106,50 +106,6 @@ Article:
     except Exception as e:
         print(f"Error generating LinkedIn post: {str(e)}")
         raise
-
-def generate_linkedin_post_2(article):
-    prompt = f"""Write a professional, natural-sounding LinkedIn post based on the following article.
-
-Guidelines:
-1. Begin with an engaging hook that captures the core theme of the article.
-2. Summarise the main point or breakthrough, highlighting its relevance or potential impact.
-3. Briefly reflect on why this development matters in the context of ethical, safe, or transparent AI.
-4. Tie it back to Responsible.ai's mission of supporting responsible, standards-based AI certification — only if relevant.
-5. End with a thoughtful question that invites discussion.
-6. Keep it around 150 words.
-7. Use 2 relevant hashtags and 1 well-placed emoji.
-
-Tone: Authentic, clear, and conversational — like a seasoned Australian copywriter writing for a professional but curious audience. No "-"
-
-Article:
-{article['title']}
-{article['summary']}"""
-
-    model = genai.GenerativeModel('gemini-2.0-flash')
-    response = model.generate_content(prompt)
-    return response.text
-
-def generate_linkedin_post_3(article):
-    prompt = f"""Write a professional, natural-sounding LinkedIn post based on the following article.
-
-Guidelines:
-1. Begin with an engaging hook that captures the core theme of the article.
-2. Summarise the main point or breakthrough, highlighting its relevance or potential impact.
-3. Briefly reflect on why this development matters in the context of ethical, safe, or transparent AI.
-4. Tie it back to Responsible.ai's mission of supporting responsible, standards-based AI certification — only if relevant.
-5. End with a thoughtful question that invites discussion.
-6. Keep it around 150 words.
-7. Use 2 relevant hashtags and 1 well-placed emoji.
-
-Tone: Authentic, clear, and conversational — like a seasoned Australian copywriter writing for a professional but curious audience. No "-"
-
-Article:
-{article['title']}
-{article['summary']}"""
-
-    model = genai.GenerativeModel('gemini-2.0-flash')
-    response = model.generate_content(prompt)
-    return response.text
 
 def send_email(linkedin_post):
     try:
