@@ -22,7 +22,7 @@ RECIPIENT_EMAIL = os.getenv('RECIPIENT_EMAIL')
 
 def get_tldr_articles():
     # Get yesterday's date in the required format
-    yesterday = datetime.now() - timedelta(days=1)
+    yesterday = datetime.now()
     date_str = yesterday.strftime("%Y-%m-%d")
     
     url = f"https://tldr.tech/ai/{date_str}"
@@ -69,62 +69,71 @@ def get_tldr_articles():
     print(f"Total articles found: {len(articles)}")
     return articles
 
-def generate_linkedin_post(articles):
-    posts = []
-    prompts = [
-        """
-        Create a focused LinkedIn post about AI security and safety, using this news story as the foundation.
-        Key points:
-        1. Start with an attention-grabbing hook about AI security
-        2. Deep dive into the specific security concerns and their implications
-        3. Connect to Responsble.ai's mission of promoting ethical AI certification
-        4. Explain how certification and standards can help address these security challenges
-        5. End with a thought-provoking question about AI safety
-        6. Include 2 relevant hashtags and 1 strategic emoji
-        Keep it natural and conversational, around 150 words.
-        
-        Article to discuss:
-        """,
-        """
-        Create a focused LinkedIn post about AI in healthcare, using this news story as the foundation.
-        Key points:
-        1. Start with an engaging hook about AI transforming healthcare
-        2. Analyze the specific innovations and their potential impact
-        3. Address the importance of responsible AI deployment in healthcare
-        4. Connect to how Responsble.ai's certification ensures ethical AI use in critical sectors
-        5. End with a question about the future of AI in healthcare
-        6. Include 2 relevant hashtags and 1 strategic emoji
-        Keep it natural and conversational, around 150 words.
-        
-        Article to discuss:
-        """,
-        """
-        Create a focused LinkedIn post about AI in productivity and workplace tools, using this news story as the foundation.
-        Key points:
-        1. Start with a compelling hook about workplace transformation
-        2. Analyze how AI is reshaping traditional tools and workflows
-        3. Address both opportunities and challenges of AI integration
-        4. Connect to Responsble.ai's role in ensuring responsible AI deployment in enterprise
-        5. End with a question about the future of work
-        6. Include 2 relevant hashtags and 1 strategic emoji
-        Keep it natural and conversational, around 150 words.
-        
-        Article to discuss:
-        """
-    ]
-    
-    # Generate three separate posts
-    for i, article in enumerate(articles[:3]):
-        prompt = prompts[i] + f"\n\n{article['title']}\nSummary: {article['summary']}"
-        
-        # Generate content using Gemini
-        model = genai.GenerativeModel('gemini-2.0-flash')
-        response = model.generate_content(prompt)
-        posts.append(response.text)
-    
-    # Combine all posts with separators
-    combined_posts = "\n\n-------------------\n\n".join(posts)
-    return combined_posts
+def generate_linkedin_post(article):
+    prompt = f"""Write a professional, natural-sounding LinkedIn post based on the following article.
+
+Guidelines:
+1. Begin with an engaging hook that captures the core theme of the article.
+2. Summarise the main point or breakthrough, highlighting its relevance or potential impact.
+3. Briefly reflect on why this development matters in the context of ethical, safe, or transparent AI.
+4. Tie it back to Responsible.ai's mission of supporting responsible, standards-based AI certification — only if relevant.
+5. End with a thoughtful question that invites discussion.
+6. Keep it around 150 words.
+7. Use 2 relevant hashtags and 1 well-placed emoji.
+
+Tone: Authentic, clear, and conversational — like a seasoned Australian copywriter writing for a professional but curious audience. No "-"
+
+Article:
+{article['title']}
+{article['summary']}"""
+
+    model = genai.GenerativeModel('gemini-2.0-flash')
+    response = model.generate_content(prompt)
+    return response.text
+
+def generate_linkedin_post_2(article):
+    prompt = f"""Write a professional, natural-sounding LinkedIn post based on the following article.
+
+Guidelines:
+1. Begin with an engaging hook that captures the core theme of the article.
+2. Summarise the main point or breakthrough, highlighting its relevance or potential impact.
+3. Briefly reflect on why this development matters in the context of ethical, safe, or transparent AI.
+4. Tie it back to Responsible.ai's mission of supporting responsible, standards-based AI certification — only if relevant.
+5. End with a thoughtful question that invites discussion.
+6. Keep it around 150 words.
+7. Use 2 relevant hashtags and 1 well-placed emoji.
+
+Tone: Authentic, clear, and conversational — like a seasoned Australian copywriter writing for a professional but curious audience. No "-"
+
+Article:
+{article['title']}
+{article['summary']}"""
+
+    model = genai.GenerativeModel('gemini-2.0-flash')
+    response = model.generate_content(prompt)
+    return response.text
+
+def generate_linkedin_post_3(article):
+    prompt = f"""Write a professional, natural-sounding LinkedIn post based on the following article.
+
+Guidelines:
+1. Begin with an engaging hook that captures the core theme of the article.
+2. Summarise the main point or breakthrough, highlighting its relevance or potential impact.
+3. Briefly reflect on why this development matters in the context of ethical, safe, or transparent AI.
+4. Tie it back to Responsible.ai's mission of supporting responsible, standards-based AI certification — only if relevant.
+5. End with a thoughtful question that invites discussion.
+6. Keep it around 150 words.
+7. Use 2 relevant hashtags and 1 well-placed emoji.
+
+Tone: Authentic, clear, and conversational — like a seasoned Australian copywriter writing for a professional but curious audience. No "-"
+
+Article:
+{article['title']}
+{article['summary']}"""
+
+    model = genai.GenerativeModel('gemini-2.0-flash')
+    response = model.generate_content(prompt)
+    return response.text
 
 def send_email(linkedin_post):
     msg = MIMEMultipart()
@@ -154,20 +163,27 @@ def send_email(linkedin_post):
 
 def main():
     try:
-        # Get articles
+        # Get today's articles
         articles = get_tldr_articles()
+        
         if not articles:
-            print("No articles found for today")
+            print("No articles found for today.")
             return
         
         # Generate LinkedIn posts
-        linkedin_posts = generate_linkedin_post(articles)
+        post1 = generate_linkedin_post(articles[0])
+        post2 = generate_linkedin_post_2(articles[1])
+        post3 = generate_linkedin_post_3(articles[2])
+        
+        # Combine all posts with separators
+        combined_posts = f"{post1}\n\n-------------------\n\n{post2}\n\n-------------------\n\n{post3}"
         
         # Send emails
-        send_email(linkedin_posts)
+        send_email(combined_posts)
         
     except Exception as e:
-        print(f"Error in main execution: {str(e)}")
+        print(f"Error in main: {str(e)}")
+        raise
 
 if __name__ == "__main__":
     main() 
