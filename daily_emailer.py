@@ -14,6 +14,7 @@ load_dotenv()
 # Configure Gemini API
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 genai.configure(api_key=GEMINI_API_KEY)
+model = genai.GenerativeModel('gemini-2.0-flash')  # Create model once
 
 # Email configuration
 SENDER_EMAIL = os.getenv('SENDER_EMAIL')
@@ -21,56 +22,67 @@ SENDER_PASSWORD = os.getenv('SENDER_PASSWORD')
 RECIPIENT_EMAIL = os.getenv('RECIPIENT_EMAIL')
 
 def get_tldr_articles():
-    # Get yesterday's date in the required format
-    yesterday = datetime.now()
-    date_str = yesterday.strftime("%Y-%m-%d")
-    
-    url = f"https://tldr.tech/ai/{date_str}"
-    print(f"Fetching articles from: {url}")
-    
-    response = requests.get(url)
-    print(f"Response status code: {response.status_code}")
-    
-    soup = BeautifulSoup(response.text, 'html.parser')
-    
-    # Extract articles from the Headlines & Launches section
-    articles = []
-    sections = soup.find_all('h3')
-    print(f"Found {len(sections)} sections")
-    
-    # Find the Headlines & Launches section
-    headlines_section = None
-    for section in sections:
-        if section.text.strip() == "Headlines & Launches":
-            headlines_section = section
-            break
-    
-    if headlines_section:
-        print("Found Headlines & Launches section")
-        # Get all h3 elements after Headlines & Launches until the next section
-        current = headlines_section.find_next('h3')
-        while current and current.text.strip() != "Research & Innovation":
-            title_text = current.text.strip()
-            if '(' in title_text and ')' in title_text:
-                # Split into title and reading time
-                parts = title_text.rsplit('(', 1)
-                title = parts[0].strip()
-                # Get the next paragraph for summary
-                summary = current.find_next('p')
-                summary_text = summary.text.strip() if summary else ''
-                
-                articles.append({
-                    'title': title,
-                    'summary': summary_text
-                })
-                print(f"Added article: {title}")
-            current = current.find_next('h3')
-    
-    print(f"Total articles found: {len(articles)}")
-    return articles
+    try:
+        # Get today's date in the required format
+        today = datetime.now()
+        date_str = today.strftime("%Y-%m-%d")
+        
+        url = f"https://tldr.tech/ai/{date_str}"
+        print(f"Fetching articles from: {url}")
+        
+        response = requests.get(url)
+        print(f"Response status code: {response.status_code}")
+        
+        if response.status_code != 200:
+            print(f"Error: Received status code {response.status_code}")
+            return []
+        
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # Extract articles from the Headlines & Launches section
+        articles = []
+        sections = soup.find_all('h3')
+        print(f"Found {len(sections)} sections")
+        
+        # Find the Headlines & Launches section
+        headlines_section = None
+        for section in sections:
+            if section.text.strip() == "Headlines & Launches":
+                headlines_section = section
+                break
+        
+        if headlines_section:
+            print("Found Headlines & Launches section")
+            # Get all h3 elements after Headlines & Launches until the next section
+            current = headlines_section.find_next('h3')
+            while current and current.text.strip() != "Research & Innovation":
+                title_text = current.text.strip()
+                if '(' in title_text and ')' in title_text:
+                    # Split into title and reading time
+                    parts = title_text.rsplit('(', 1)
+                    title = parts[0].strip()
+                    # Get the next paragraph for summary
+                    summary = current.find_next('p')
+                    summary_text = summary.text.strip() if summary else ''
+                    
+                    articles.append({
+                        'title': title,
+                        'summary': summary_text
+                    })
+                    print(f"Added article: {title}")
+                current = current.find_next('h3')
+        else:
+            print("Warning: Could not find Headlines & Launches section")
+        
+        print(f"Total articles found: {len(articles)}")
+        return articles
+    except Exception as e:
+        print(f"Error in get_tldr_articles: {str(e)}")
+        raise
 
 def generate_linkedin_post(article):
-    prompt = f"""Write a professional, natural-sounding LinkedIn post based on the following article.
+    try:
+        prompt = f"""Write a professional, natural-sounding LinkedIn post based on the following article.
 
 Guidelines:
 1. Begin with an engaging hook that captures the core theme of the article.
@@ -87,9 +99,13 @@ Article:
 {article['title']}
 {article['summary']}"""
 
-    model = genai.GenerativeModel('gemini-2.0-flash')
-    response = model.generate_content(prompt)
-    return response.text
+        print(f"Generating post for article: {article['title']}")
+        response = model.generate_content(prompt)
+        print("Post generated successfully")
+        return response.text
+    except Exception as e:
+        print(f"Error generating LinkedIn post: {str(e)}")
+        raise
 
 def generate_linkedin_post_2(article):
     prompt = f"""Write a professional, natural-sounding LinkedIn post based on the following article.
@@ -136,33 +152,41 @@ Article:
     return response.text
 
 def send_email(linkedin_post):
-    msg = MIMEMultipart()
-    msg['From'] = SENDER_EMAIL
-    msg['To'] = RECIPIENT_EMAIL
-    msg['Subject'] = f"Your Daily LinkedIn AI Posts - {datetime.now().strftime('%Y-%m-%d')}"
-    
-    body = f"""
-    Here are your AI-generated LinkedIn posts for today:
-    
-    {linkedin_post}
-    
-    Feel free to edit and customize before posting! You can choose to post these separately throughout the day or combine elements into a single post.
-    """
-    
-    msg.attach(MIMEText(body, 'plain'))
-    
     try:
+        print(f"Preparing to send email to {RECIPIENT_EMAIL}")
+        msg = MIMEMultipart()
+        msg['From'] = SENDER_EMAIL
+        msg['To'] = RECIPIENT_EMAIL
+        msg['Subject'] = f"Your Daily LinkedIn AI Posts - {datetime.now().strftime('%Y-%m-%d')}"
+        
+        body = f"""
+        Here are your AI-generated LinkedIn posts for today:
+        
+        {linkedin_post}
+        
+        Feel free to edit and customize before posting! You can choose to post these separately throughout the day or combine elements into a single post.
+        """
+        
+        msg.attach(MIMEText(body, 'plain'))
+        
+        print("Connecting to SMTP server...")
         server = smtplib.SMTP('smtp.gmail.com', 587)
+        print("Starting TLS...")
         server.starttls()
+        print("Logging in...")
         server.login(SENDER_EMAIL, SENDER_PASSWORD)
+        print("Sending message...")
         server.send_message(msg)
+        print("Closing connection...")
         server.quit()
         print("Email sent successfully!")
     except Exception as e:
         print(f"Error sending email: {str(e)}")
+        raise
 
 def main():
     try:
+        print("Starting main process...")
         # Get today's articles
         articles = get_tldr_articles()
         
@@ -170,16 +194,21 @@ def main():
             print("No articles found for today.")
             return
         
+        print(f"Found {len(articles)} articles")
+        
         # Generate LinkedIn posts
+        print("Generating LinkedIn posts...")
         post1 = generate_linkedin_post(articles[0])
-        post2 = generate_linkedin_post_2(articles[1])
-        post3 = generate_linkedin_post_3(articles[2])
+        post2 = generate_linkedin_post(articles[1])
+        post3 = generate_linkedin_post(articles[2])
         
         # Combine all posts with separators
         combined_posts = f"{post1}\n\n-------------------\n\n{post2}\n\n-------------------\n\n{post3}"
         
         # Send emails
+        print("Sending email...")
         send_email(combined_posts)
+        print("Process completed successfully!")
         
     except Exception as e:
         print(f"Error in main: {str(e)}")
