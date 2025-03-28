@@ -7,6 +7,7 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from dotenv import load_dotenv
+from gnews import GNews
 
 # Load environment variables
 load_dotenv()
@@ -22,11 +23,37 @@ SENDER_PASSWORD = os.getenv('SENDER_PASSWORD')
 # Split recipient emails by comma
 RECIPIENT_EMAILS = [email.strip() for email in os.getenv('RECIPIENT_EMAIL', '').split(',')]
 
+def get_australian_ai_news():
+    try:
+        print("Fetching Australian AI news...")
+        # Initialize GNews with Australian settings
+        google_news = GNews(language='en', country='Australia', period='1d', max_results=3)
+        
+        # Search for AI-related news with Australian context
+        articles = google_news.get_news('(Australia OR Australian) (artificial intelligence OR AI OR machine learning)')
+        
+        # Format articles
+        formatted_articles = []
+        for article in articles:
+            formatted_articles.append({
+                'title': article['title'],
+                'summary': article['description'],
+                'url': article['url']
+            })
+            print(f"Added Australian article: {article['title']}")
+        
+        print(f"Total Australian articles found: {len(formatted_articles)}")
+        return formatted_articles
+    except Exception as e:
+        print(f"Error in get_australian_ai_news: {str(e)}")
+        raise
+
 def get_tldr_articles():
     try:
-        # Get today's date in the required format
+        # Get yesterday's date in the required format
         today = datetime.now()
-        date_str = today.strftime("%Y-%m-%d")
+        yesterday = today - timedelta(days=1)
+        date_str = yesterday.strftime("%Y-%m-%d")
         
         url = f"https://tldr.tech/ai/{date_str}"
         print(f"Fetching articles from: {url}")
@@ -65,10 +92,13 @@ def get_tldr_articles():
                     # Get the next paragraph for summary
                     summary = current.find_next('p')
                     summary_text = summary.text.strip() if summary else ''
+                    # Get the URL from the parent anchor tag if it exists
+                    url = current.find_parent('a')['href'] if current.find_parent('a') else ''
                     
                     articles.append({
                         'title': title,
-                        'summary': summary_text
+                        'summary': summary_text,
+                        'url': url
                     })
                     print(f"Added article: {title}")
                 current = current.find_next('h3')
@@ -81,8 +111,9 @@ def get_tldr_articles():
         print(f"Error in get_tldr_articles: {str(e)}")
         raise
 
-def generate_linkedin_post(article):
+def generate_linkedin_post(article, is_australian=False):
     try:
+        prompt_prefix = "Australian AI Update: " if is_australian else ""
         prompt = f"""Write a professional, natural-sounding LinkedIn post based on the following article.
 
 Guidelines:
@@ -97,29 +128,35 @@ Guidelines:
 Tone: Authentic, clear, and conversational — like a seasoned Australian copywriter writing for a professional but curious audience. No "-"
 
 Article:
-{article['title']}
+{prompt_prefix}{article['title']}
 {article['summary']}"""
 
         print(f"Generating post for article: {article['title']}")
         response = model.generate_content(prompt)
         print("Post generated successfully")
-        return response.text
+        return f"{response.text}\n\nRead more: {article['url']}"
     except Exception as e:
         print(f"Error generating LinkedIn post: {str(e)}")
         raise
 
-def send_email(linkedin_post):
+def send_email(global_posts, australian_posts):
     try:
         print(f"Preparing to send email to {', '.join(RECIPIENT_EMAILS)}")
         msg = MIMEMultipart()
         msg['From'] = SENDER_EMAIL
         msg['To'] = ', '.join(RECIPIENT_EMAILS)  # Join all emails with commas
-        msg['Subject'] = f"Your Daily LinkedIn AI Posts - {datetime.now().strftime('%Y-%m-%d')}"
+        msg['Subject'] = f"Your Daily LinkedIn AI Posts - Global & Australian Updates - {datetime.now().strftime('%Y-%m-%d')}"
         
         body = f"""
         Here are your AI-generated LinkedIn posts for today:
+
+        GLOBAL AI UPDATES:
+        {global_posts}
         
-        {linkedin_post}
+        ==========================================
+        
+        AUSTRALIAN AI UPDATES:
+        {australian_posts}
         
         Feel free to edit and customize before posting! You can choose to post these separately throughout the day or combine elements into a single post.
         """
@@ -143,27 +180,43 @@ def send_email(linkedin_post):
 def main():
     try:
         print("Starting main process...")
-        # Get today's articles
-        articles = get_tldr_articles()
         
-        if not articles:
-            print("No articles found for today.")
+        # Get global articles
+        print("\nFetching global articles...")
+        global_articles = get_tldr_articles()
+        
+        if not global_articles:
+            print("No global articles found for today.")
             return
         
-        print(f"Found {len(articles)} articles")
+        # Get Australian articles
+        print("\nFetching Australian articles...")
+        australian_articles = get_australian_ai_news()
         
-        # Generate LinkedIn posts
-        print("Generating LinkedIn posts...")
-        post1 = generate_linkedin_post(articles[0])
-        post2 = generate_linkedin_post(articles[1])
-        post3 = generate_linkedin_post(articles[2])
+        if not australian_articles:
+            print("No Australian articles found.")
+            return
+        
+        # Generate LinkedIn posts for global articles
+        print("\nGenerating global LinkedIn posts...")
+        global_post1 = generate_linkedin_post(global_articles[0])
+        global_post2 = generate_linkedin_post(global_articles[1])
+        global_post3 = generate_linkedin_post(global_articles[2])
+        
+        # Generate LinkedIn posts for Australian articles
+        print("\nGenerating Australian LinkedIn posts...")
+        aus_posts = []
+        for article in australian_articles:
+            post = generate_linkedin_post(article, is_australian=True)
+            aus_posts.append(post)
         
         # Combine all posts with separators
-        combined_posts = f"{post1}\n\n-------------------\n\n{post2}\n\n-------------------\n\n{post3}"
+        global_combined = f"{global_post1}\n\n-------------------\n\n{global_post2}\n\n-------------------\n\n{global_post3}"
+        australian_combined = "\n\n-------------------\n\n".join(aus_posts)
         
         # Send emails
-        print("Sending email...")
-        send_email(combined_posts)
+        print("\nSending email...")
+        send_email(global_combined, australian_combined)
         print("Process completed successfully!")
         
     except Exception as e:
