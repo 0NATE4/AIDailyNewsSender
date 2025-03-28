@@ -19,7 +19,8 @@ model = genai.GenerativeModel('gemini-2.0-flash')  # Create model once
 # Email configuration
 SENDER_EMAIL = os.getenv('SENDER_EMAIL')
 SENDER_PASSWORD = os.getenv('SENDER_PASSWORD')
-RECIPIENT_EMAIL = os.getenv('RECIPIENT_EMAIL')
+# Split recipient emails by comma
+RECIPIENT_EMAILS = [email.strip() for email in os.getenv('RECIPIENT_EMAIL', '').split(',')]
 
 def get_tldr_articles():
     try:
@@ -109,10 +110,10 @@ Article:
 
 def send_email(linkedin_post):
     try:
-        print(f"Preparing to send email to {RECIPIENT_EMAIL}")
+        print(f"Preparing to send email to {', '.join(RECIPIENT_EMAILS)}")
         msg = MIMEMultipart()
         msg['From'] = SENDER_EMAIL
-        msg['To'] = RECIPIENT_EMAIL
+        msg['To'] = ', '.join(RECIPIENT_EMAILS)  # Join all emails with commas
         msg['Subject'] = f"Your Daily LinkedIn AI Posts - {datetime.now().strftime('%Y-%m-%d')}"
         
         body = f"""
