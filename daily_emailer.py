@@ -126,7 +126,8 @@ def send_email(linkedin_post):
         msg.attach(MIMEText(body, 'plain'))
         
         print("Connecting to SMTP server...")
-        server = smtplib.SMTP('smtp.gmail.com', 587)
+        # Using Outlook's SMTP server
+        server = smtplib.SMTP('smtp.office365.com', 587)
         print("Starting TLS...")
         server.starttls()
         print("Logging in...")
