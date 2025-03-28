@@ -126,10 +126,8 @@ def send_email(linkedin_post):
         msg.attach(MIMEText(body, 'plain'))
         
         print("Connecting to SMTP server...")
-        # Using Outlook's SMTP server
-        server = smtplib.SMTP('smtp.office365.com', 587)
-        print("Starting TLS...")
-        server.starttls()
+        # Using Inventico's SMTP server with SSL
+        server = smtplib.SMTP_SSL('mail.inventico.io', 465)
         print("Logging in...")
         server.login(SENDER_EMAIL, SENDER_PASSWORD)
         print("Sending message...")
