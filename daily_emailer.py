@@ -56,17 +56,16 @@ def get_australian_ai_news():
         # Raw search
         raw_articles = google_news.get_news('(artificial intelligence OR AI OR machine learning) Australia')
 
-        # Filter for trustworthy Australian sources
-        aus_domains = ['abc.net.au', 'smh.com.au', 'afr.com', 'innovationaus.com', 'csiro.au', 'theguardian.com']
+      
         filtered_articles = []
         for article in raw_articles:
-            if any(domain in article['url'] for domain in aus_domains):
-                filtered_articles.append({
-                    'title': article['title'],
-                    'summary': article['description'],
-                    'url': article['url']
-                })
-                print(f"Added: {article['title']}")
+            
+            filtered_articles.append({
+                'title': article['title'],
+                'summary': article['description'],
+                'url': article['url']
+            })
+            print(f"Added: {article['title']}")
         
         print(f"Total Australian articles found: {len(filtered_articles)}")
         return filtered_articles[:3]  # Return only top 3
