@@ -7,8 +7,8 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from dotenv import load_dotenv
-from newsapi import NewsApiClient # Changed import
-import re # Import regex for filtering
+from newsapi import NewsApiClient 
+import re 
 
 # Load environment variables
 load_dotenv()
@@ -25,10 +25,6 @@ SENDER_PASSWORD = os.getenv('SENDER_PASSWORD')
 RECIPIENT_EMAILS = [email.strip() for email in os.getenv('RECIPIENT_EMAIL', '').split(',')]
 NEWS_API_KEY = os.getenv('NEWS_API_KEY') # Added News API Key loading
 
-# def get_australian_ai_news(): # Old GNews function commented out
-#     ... (omitted for brevity) ...
-
-# New News API function with refined query and filtering
 def get_australian_ai_news():
     try:
         print("Fetching Australian AI news using News API...")
@@ -40,7 +36,7 @@ def get_australian_ai_news():
 
         # Calculate dates for the past day
         to_date = datetime.now()
-        from_date = to_date - timedelta(days=1) # Changed to 1 day
+        from_date = to_date - timedelta(days=1) 
         from_param = from_date.strftime('%Y-%m-%d')
         to_param = to_date.strftime('%Y-%m-%d')
 
@@ -103,7 +99,6 @@ def get_australian_ai_news():
 
 def get_tldr_articles():
     try:
-        # Get yesterday's date in the required format
         today = datetime.now()
         date_str = today.strftime("%Y-%m-%d")
 
@@ -208,7 +203,7 @@ def send_email(global_posts, australian_posts):
         print(f"Preparing to send email to {', '.join(RECIPIENT_EMAILS)}")
         msg = MIMEMultipart()
         msg['From'] = SENDER_EMAIL
-        msg['To'] = ', '.join(RECIPIENT_EMAILS)  # Join all emails with commas
+        msg['To'] = ', '.join(RECIPIENT_EMAILS)  
         msg['Subject'] = f"Your Daily LinkedIn AI Posts - Global & Australian Updates - {datetime.now().strftime('%Y-%m-%d')}"
 
         body = f"""
