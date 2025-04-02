@@ -23,30 +23,57 @@ SENDER_PASSWORD = os.getenv('SENDER_PASSWORD')
 # Split recipient emails by comma
 RECIPIENT_EMAILS = [email.strip() for email in os.getenv('RECIPIENT_EMAIL', '').split(',')]
 
+# def get_australian_ai_news():
+#     try:
+#         print("Fetching Australian AI news...")
+#         # Initialize GNews with Australian settings
+#         google_news = GNews(language='en', country='Australia', period='1d', max_results=3)
+        
+#         # Search for AI-related news with Australian context
+#         articles = google_news.get_news('(Australia OR Australian) (artificial intelligence OR AI OR machine learning)')
+        
+#         # Format articles
+#         formatted_articles = []
+#         for article in articles:
+#             formatted_articles.append({
+#                 'title': article['title'],
+#                 'summary': article['description'],
+#                 'url': article['url']
+#             })
+#             print(f"Added Australian article: {article['title']}")
+        
+#         print(f"Total Australian articles found: {len(formatted_articles)}")
+#         return formatted_articles
+#     except Exception as e:
+#         print(f"Error in get_australian_ai_news: {str(e)}")
+#         raise
+
 def get_australian_ai_news():
     try:
         print("Fetching Australian AI news...")
-        # Initialize GNews with Australian settings
-        google_news = GNews(language='en', country='Australia', period='1d', max_results=3)
+        google_news = GNews(language='en', country='Australia', period='5d', max_results=10)
+
+        # Raw search
+        raw_articles = google_news.get_news('(artificial intelligence OR AI OR machine learning) Australia')
+
+        # Filter for trustworthy Australian sources
+        aus_domains = ['abc.net.au', 'smh.com.au', 'afr.com', 'innovationaus.com', 'csiro.au', 'theguardian.com']
+        filtered_articles = []
+        for article in raw_articles:
+            if any(domain in article['url'] for domain in aus_domains):
+                filtered_articles.append({
+                    'title': article['title'],
+                    'summary': article['description'],
+                    'url': article['url']
+                })
+                print(f"Added: {article['title']}")
         
-        # Search for AI-related news with Australian context
-        articles = google_news.get_news('(Australia OR Australian) (artificial intelligence OR AI OR machine learning)')
-        
-        # Format articles
-        formatted_articles = []
-        for article in articles:
-            formatted_articles.append({
-                'title': article['title'],
-                'summary': article['description'],
-                'url': article['url']
-            })
-            print(f"Added Australian article: {article['title']}")
-        
-        print(f"Total Australian articles found: {len(formatted_articles)}")
-        return formatted_articles
+        print(f"Total Australian articles found: {len(filtered_articles)}")
+        return filtered_articles[:3]  # Return only top 3
     except Exception as e:
         print(f"Error in get_australian_ai_news: {str(e)}")
-        raise
+        return []
+
 
 def get_tldr_articles():
     try:
@@ -179,6 +206,10 @@ def send_email(global_posts, australian_posts):
 def main():
     try:
         print("Starting main process...")
+
+        # Combine all posts with separators
+        global_combined = ""
+        australian_combined = ""
         
         # Get global articles
         print("\nFetching global articles...")
@@ -186,7 +217,12 @@ def main():
         
         if not global_articles:
             print("No global articles found for today.")
-            return
+        else:
+            print("\nGenerating global LinkedIn posts...")
+            global_post1 = generate_linkedin_post(global_articles[0])
+            global_post2 = generate_linkedin_post(global_articles[1])
+            global_post3 = generate_linkedin_post(global_articles[2])
+            global_combined = f"{global_post1}\n\n-------------------\n\n{global_post2}\n\n-------------------\n\n{global_post3}"
         
         # Get Australian articles
         print("\nFetching Australian articles...")
@@ -194,24 +230,14 @@ def main():
         
         if not australian_articles:
             print("No Australian articles found.")
-            return
+        else:
+            print("\nGenerating Australian LinkedIn posts...")
+            aus_posts = []
+            for article in australian_articles:
+                post = generate_linkedin_post(article, is_australian=True)
+                aus_posts.append(post)
+            australian_combined = "\n\n-------------------\n\n".join(aus_posts)
         
-        # Generate LinkedIn posts for global articles
-        print("\nGenerating global LinkedIn posts...")
-        global_post1 = generate_linkedin_post(global_articles[0])
-        global_post2 = generate_linkedin_post(global_articles[1])
-        global_post3 = generate_linkedin_post(global_articles[2])
-        
-        # Generate LinkedIn posts for Australian articles
-        print("\nGenerating Australian LinkedIn posts...")
-        aus_posts = []
-        for article in australian_articles:
-            post = generate_linkedin_post(article, is_australian=True)
-            aus_posts.append(post)
-        
-        # Combine all posts with separators
-        global_combined = f"{global_post1}\n\n-------------------\n\n{global_post2}\n\n-------------------\n\n{global_post3}"
-        australian_combined = "\n\n-------------------\n\n".join(aus_posts)
         
         # Send emails
         print("\nSending email...")
