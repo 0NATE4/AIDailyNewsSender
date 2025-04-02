@@ -38,9 +38,9 @@ def get_australian_ai_news():
 
         newsapi = NewsApiClient(api_key=NEWS_API_KEY)
 
-        # Calculate dates for the past week
+        # Calculate dates for the past day
         to_date = datetime.now()
-        from_date = to_date - timedelta(days=7)
+        from_date = to_date - timedelta(days=1) # Changed to 1 day
         from_param = from_date.strftime('%Y-%m-%d')
         to_param = to_date.strftime('%Y-%m-%d')
 
@@ -165,17 +165,29 @@ def get_tldr_articles():
 
 def generate_linkedin_post(article, is_australian=False):
     try:
-        prompt_prefix = "Australian AI Update: " if is_australian else ""
-        prompt = f"""Write a professional, natural-sounding LinkedIn post based on the following article.
-
+        # Construct the prompt with the new guideline for Australian context
+        guidelines = """
 Guidelines:
 1. Begin with an engaging hook that captures the core theme of the article.
 2. Summarise the main point or breakthrough, highlighting its relevance or potential impact.
 3. Briefly reflect on why this development matters in the context of ethical, safe, or transparent AI.
-4. Tie it back to "responsble.ai" (notice that its responsble, NOT responsible), and its mission of supporting responsible, standards-based AI certification.
-5. End with a thoughtful question that invites discussion.
-6. Keep it around 200 words.
-7. Use 2 relevant hashtags and 1 well-placed emoji.
+4. Tie it back to "responsble.ai" (notice that its responsble, NOT responsible), and its mission of supporting responsible, standards-based AI certification."""
+
+        if is_australian:
+            guidelines += "\n5. Explicitly mention the Australian context of this news (e.g., using 'Australia', 'Australian', 'Aussie')."
+            guidelines += "\n6. End with a thoughtful question that invites discussion."
+            guidelines += "\n7. Keep it around 200 words."
+            guidelines += "\n8. Use 2 relevant hashtags and 1 well-placed emoji."
+            prompt_prefix = "Australian AI Update: "
+        else:
+            guidelines += "\n5. End with a thoughtful question that invites discussion."
+            guidelines += "\n6. Keep it around 200 words."
+            guidelines += "\n7. Use 2 relevant hashtags and 1 well-placed emoji."
+            prompt_prefix = ""
+
+
+        prompt = f"""Write a professional, natural-sounding LinkedIn post based on the following article.
+{guidelines}
 
 Tone: Authentic, clear, and conversational — like a seasoned Australian copywriter writing for a professional but curious audience. No "-"
 
