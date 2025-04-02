@@ -7,8 +7,8 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from dotenv import load_dotenv
-from newsapi import NewsApiClient 
-import re 
+from newsapi import NewsApiClient
+import re
 
 # Load environment variables
 load_dotenv()
@@ -36,7 +36,7 @@ def get_australian_ai_news():
 
         # Calculate dates for the past day
         to_date = datetime.now()
-        from_date = to_date - timedelta(days=1) 
+        from_date = to_date - timedelta(days=1)
         from_param = from_date.strftime('%Y-%m-%d')
         to_param = to_date.strftime('%Y-%m-%d')
 
@@ -199,11 +199,18 @@ Article:
         raise
 
 def send_email(global_posts, australian_posts):
+    # Ensure RECIPIENT_EMAILS is not empty
+    if not RECIPIENT_EMAILS or not any(RECIPIENT_EMAILS):
+        print("Error: No recipient emails configured.")
+        return # Or raise an error
+
     try:
-        print(f"Preparing to send email to {', '.join(RECIPIENT_EMAILS)}")
+        print(f"Preparing to send email via BCC to {len(RECIPIENT_EMAILS)} recipients.")
         msg = MIMEMultipart()
         msg['From'] = SENDER_EMAIL
-        msg['To'] = ', '.join(RECIPIENT_EMAILS)  
+        # Set 'To' header to the sender address (or a generic description) for BCC
+        msg['To'] = SENDER_EMAIL
+        # msg['To'] = "Undisclosed Recipients <" + SENDER_EMAIL + ">" # Alternative format
         msg['Subject'] = f"Your Daily LinkedIn AI Posts - Global & Australian Updates - {datetime.now().strftime('%Y-%m-%d')}"
 
         body = f"""
@@ -228,12 +235,14 @@ def send_email(global_posts, australian_posts):
         print("Logging in...")
         server.login(SENDER_EMAIL, SENDER_PASSWORD)
         print("Sending message...")
-        server.send_message(msg)
+        # Use sendmail for BCC: sender, list of actual recipients, message content
+        server.sendmail(SENDER_EMAIL, RECIPIENT_EMAILS, msg.as_string())
         print("Closing connection...")
         server.quit()
         print("Email sent successfully!")
     except Exception as e:
         print(f"Error sending email: {str(e)}")
+        # Consider more specific error handling if needed
         raise
 
 def main():
@@ -277,9 +286,13 @@ def main():
             australian_combined = "\n\n-------------------\n\n".join(aus_posts)
 
 
-        # Send emails
-        print("\nSending email...")
-        send_email(global_combined, australian_combined)
+        # Send emails only if there are recipients
+        if RECIPIENT_EMAILS and any(RECIPIENT_EMAILS):
+            print("\nSending email...")
+            send_email(global_combined, australian_combined)
+        else:
+            print("\nSkipping email: No recipient emails configured.")
+
         print("Process completed successfully!")
 
     except Exception as e:
