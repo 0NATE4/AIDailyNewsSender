@@ -24,8 +24,10 @@ model = genai.GenerativeModel('gemini-2.0-flash')  # Create model once
 # Email configuration
 SENDER_EMAIL = os.getenv('SENDER_EMAIL')
 SENDER_PASSWORD = os.getenv('SENDER_PASSWORD')
-# Split recipient emails by comma - using the original single list for now
-RECIPIENT_EMAILS = [email.strip() for email in os.getenv('RECIPIENT_EMAIL', '').split(',') if email.strip()]
+# Split recipient emails by comma for different formats
+# Filter out empty strings that might result from trailing commas
+RECIPIENT_EMAILS_LINKEDIN = [email.strip() for email in os.getenv('RECIPIENT_EMAIL_LINKEDIN', '').split(',') if email.strip()]
+RECIPIENT_EMAILS_BULLETS = [email.strip() for email in os.getenv('RECIPIENT_EMAIL_BULLETS', '').split(',') if email.strip()]
 NEWS_API_KEY = os.getenv('NEWS_API_KEY') # Added News API Key loading
 
 def get_australian_ai_news():
@@ -228,15 +230,70 @@ Article:
         raise
 
 
-def send_email(global_articles_data, australian_articles_data):
+def generate_linkedin_post(article, is_australian=False):
+    """Generates a LinkedIn post based on an article."""
+    try:
+        # Construct the prompt for LinkedIn post (from daily_emailer.py)
+        guidelines = """
+Guidelines:
+1. Begin with an engaging hook that captures the core theme of the article.
+2. Summarise the main point or breakthrough, highlighting its relevance or potential impact.
+3. Briefly reflect on why this development matters in the context of ethical, safe, or transparent AI.
+4. Tie it back to "responsble.ai" (notice that its responsble, NOT responsible), and its mission of supporting responsible, standards-based AI certification."""
+
+        if is_australian:
+            guidelines += "\n5. Explicitly mention the Australian context of this news (e.g., using 'Australia', 'Australian', 'Aussie')."
+            guidelines += "\n6. End with a thoughtful question that invites discussion."
+            guidelines += "\n7. Keep it around 200 words."
+            guidelines += "\n8. Use 2 relevant hashtags and 1 well-placed emoji."
+            prompt_prefix = "Australian AI Update: "
+            # Prioritize using 'content' if available and substantially longer
+            content_text = article.get('content', '') or ''
+            description_text = article.get('summary', '') or '' # 'summary' key holds description
+            if content_text and len(content_text) > len(description_text) + 20:
+                 summary_to_use = content_text
+                 source_used = 'content' # Keep track for potential debugging
+            else:
+                 summary_to_use = description_text
+                 source_used = 'summary/description' # Keep track for potential debugging
+        else:
+            guidelines += "\n5. End with a thoughtful question that invites discussion."
+            guidelines += "\n6. Keep it around 200 words."
+            guidelines += "\n7. Use 2 relevant hashtags and 1 well-placed emoji."
+            prompt_prefix = "" # No prefix for global posts
+            # For global news, use the scraped summary
+            summary_to_use = article.get('summary', '')
+            source_used = 'summary/description' # Indicate source for consistency
+
+        # LinkedIn prompt structure (from daily_emailer.py)
+        prompt = f"""Write a professional, natural-sounding LinkedIn post based on the following article.
+{guidelines}
+
+Tone: Authentic, clear, and conversational — like a seasoned Australian copywriter writing for a professional but curious audience. No "-"
+
+Article:
+{prompt_prefix}{article['title']}
+{summary_to_use}
+"""
+        print(f"Generating LinkedIn post for article: {article['title']} (Using {source_used})")
+        response = model.generate_content(prompt)
+        print("Post generated successfully")
+        # Return formatted post string
+        return f"{response.text}\n\nRead more: {article['url']}"
+    except Exception as e:
+        print(f"Error generating LinkedIn post: {str(e)}")
+        raise
+
+
+def send_bullet_points_email(global_articles_data, australian_articles_data): # Renamed function
     """Sends the bullet point summaries as an HTML email."""
-    # Ensure RECIPIENT_EMAILS is not empty
-    if not RECIPIENT_EMAILS or not any(RECIPIENT_EMAILS):
-        print("Error: No recipient emails configured for bullet points.")
+    # Use the specific recipient list for bullet points
+    if not RECIPIENT_EMAILS_BULLETS or not any(RECIPIENT_EMAILS_BULLETS):
+        print("Error: No recipient emails configured for bullet points (RECIPIENT_EMAIL_BULLETS).")
         return # Or raise an error
 
     try:
-        print(f"Preparing bullet points email via BCC to {len(RECIPIENT_EMAILS)} recipients.")
+        print(f"Preparing bullet points email via BCC to {len(RECIPIENT_EMAILS_BULLETS)} recipients.")
         msg = MIMEMultipart()
         msg['From'] = SENDER_EMAIL
         msg['To'] = SENDER_EMAIL # For BCC
@@ -316,7 +373,7 @@ def send_email(global_articles_data, australian_articles_data):
         print("Logging in...")
         server.login(SENDER_EMAIL, SENDER_PASSWORD)
         print("Sending bullet points email...")
-        server.sendmail(SENDER_EMAIL, RECIPIENT_EMAILS, msg.as_string())
+        server.sendmail(SENDER_EMAIL, RECIPIENT_EMAILS_BULLETS, msg.as_string())
         print("Closing connection...")
         server.quit()
         print("Bullet points email sent successfully!")
@@ -325,15 +382,65 @@ def send_email(global_articles_data, australian_articles_data):
         raise
 
 
+def send_linkedin_email(global_posts_list, australian_posts_list):
+    """Sends the LinkedIn posts as a plain text email."""
+    # Use the specific recipient list for LinkedIn posts
+    if not RECIPIENT_EMAILS_LINKEDIN or not any(RECIPIENT_EMAILS_LINKEDIN):
+        print("Error: No recipient emails configured for LinkedIn posts (RECIPIENT_EMAIL_LINKEDIN).")
+        return # Or raise an error
+
+    try:
+        # Combine posts with separators
+        global_combined = "\n\n-------------------\n\n".join(global_posts_list)
+        australian_combined = "\n\n-------------------\n\n".join(australian_posts_list) # Corrected variable name
+
+        print(f"Preparing LinkedIn posts email via BCC to {len(RECIPIENT_EMAILS_LINKEDIN)} recipients.")
+        msg = MIMEMultipart()
+        msg['From'] = SENDER_EMAIL
+        msg['To'] = SENDER_EMAIL # For BCC
+        et_tz = pytz.timezone('US/Eastern')
+        # Use current ET date for subject as posts relate to 'today' in ET perspective
+        et_now = datetime.now(et_tz)
+        msg['Subject'] = f"Your Daily LinkedIn AI Posts - Global & Australian Updates - {et_now.strftime('%Y-%m-%d')} (ET)"
+
+        body = f"""
+Here are your AI-generated LinkedIn posts for today:
+
+GLOBAL AI UPDATES:
+{global_combined if global_combined else "No global posts generated."}
+
+==========================================
+
+AUSTRALIAN AI UPDATES:
+{australian_combined if australian_combined else "No Australian posts generated."}
+
+Feel free to edit and customize before posting! You can choose to post these separately throughout the day or combine elements into a single post.
+"""
+        msg.attach(MIMEText(body, 'plain')) # Plain text email
+
+        print("Connecting to SMTP server for LinkedIn posts email...")
+        server = smtplib.SMTP_SSL('mail.inventico.io', 465)
+        print("Logging in...")
+        server.login(SENDER_EMAIL, SENDER_PASSWORD)
+        print("Sending LinkedIn posts email...")
+        server.sendmail(SENDER_EMAIL, RECIPIENT_EMAILS_LINKEDIN, msg.as_string())
+        print("Closing connection...")
+        server.quit()
+        print("LinkedIn posts email sent successfully!")
+    except Exception as e:
+        print(f"Error sending LinkedIn posts email: {str(e)}")
+        raise
+
+
 def main():
     """Main function to fetch news, generate content, and send emails."""
     try:
         print("Starting main process...")
 
-        # Lists to hold generated content (placeholder for dual format)
-        # global_linkedin_posts = []
+        # Lists to hold generated content
+        global_linkedin_posts = []
         global_bullet_points = []
-        # aus_linkedin_posts = []
+        aus_linkedin_posts = []
         aus_bullet_points = []
 
         # Get global articles
@@ -343,10 +450,16 @@ def main():
         if not global_articles:
             print("No global articles found for today.")
         else:
-            print("\nGenerating global content (bullet points)...")
+            print("\nGenerating global content (LinkedIn posts and bullet points)...") # Updated print
             num_global_articles = min(len(global_articles), 3)
             for i in range(num_global_articles):
                 article = global_articles[i]
+                # Generate LinkedIn post
+                try:
+                    linkedin_post = generate_linkedin_post(article, is_australian=False)
+                    global_linkedin_posts.append(linkedin_post) # Store the formatted string
+                except Exception as e:
+                    print(f"Failed to generate LinkedIn post for global article '{article.get('title', 'N/A')}': {e}")
                 # Generate bullet points
                 try:
                     bullets, url = generate_bullet_points(article, is_australian=False)
@@ -362,11 +475,17 @@ def main():
         if not australian_articles:
             print("No Australian articles found.")
         else:
-            print("\nGenerating Australian content (bullet points)...")
+            print("\nGenerating Australian content (LinkedIn posts and bullet points)...") # Updated print
             num_aus_articles = min(len(australian_articles), 3)
             for i in range(num_aus_articles):
                 article = australian_articles[i]
-                # Generate bullet points
+                 # Generate LinkedIn post
+                try:
+                    linkedin_post = generate_linkedin_post(article, is_australian=True)
+                    aus_linkedin_posts.append(linkedin_post) # Store the formatted string
+                except Exception as e:
+                    print(f"Failed to generate LinkedIn post for Australian article '{article.get('title', 'N/A')}': {e}")
+               # Generate bullet points
                 try:
                     bullets, url = generate_bullet_points(article, is_australian=True)
                     aus_bullet_points.append({'summary': bullets, 'url': url, 'title': article['title']}) # Store dict for HTML email
@@ -375,25 +494,31 @@ def main():
 
 
         # --- Email Sending Section ---
-        # Send bullet points email
-        if RECIPIENT_EMAILS and any(RECIPIENT_EMAILS):
+        # Send bullet points email (HTML)
+        if RECIPIENT_EMAILS_BULLETS: # Check if list is configured
              if global_bullet_points or aus_bullet_points:
                  print("\nSending bullet points email...")
-                 send_email(global_bullet_points, aus_bullet_points)
+                 try:
+                     send_bullet_points_email(global_bullet_points, aus_bullet_points)
+                 except Exception as e:
+                     print(f"Failed to send bullet points email: {e}")
              else:
                  print("\nNo bullet point content generated to send.")
         else:
-             print("\nSkipping bullet points email: No recipients configured.")
+             print("\nSkipping bullet points email: No recipients configured (RECIPIENT_EMAIL_BULLETS).")
 
-        # Placeholder for sending LinkedIn posts email (to be added later)
-        # if RECIPIENT_EMAILS_LINKEDIN and any(RECIPIENT_EMAILS_LINKEDIN):
-        #     if global_linkedin_posts or aus_linkedin_posts:
-        #          print("\nSending LinkedIn posts email...")
-        #          # send_linkedin_email(global_linkedin_posts, aus_linkedin_posts)
-        #     else:
-        #          print("\nNo LinkedIn post content generated to send.")
-        # else:
-        #      print("\nSkipping LinkedIn posts email: No recipients configured.")
+        # Send LinkedIn posts email (Plain Text)
+        if RECIPIENT_EMAILS_LINKEDIN: # Check if list is configured
+            if global_linkedin_posts or aus_linkedin_posts:
+                 print("\nSending LinkedIn posts email...")
+                 try:
+                     send_linkedin_email(global_linkedin_posts, aus_linkedin_posts)
+                 except Exception as e:
+                     print(f"Failed to send LinkedIn posts email: {e}")
+            else:
+                 print("\nNo LinkedIn post content generated to send.")
+        else:
+             print("\nSkipping LinkedIn posts email: No recipients configured (RECIPIENT_EMAIL_LINKEDIN).")
 
 
         print("\nProcess completed successfully!")
