@@ -27,6 +27,7 @@ jobs:
         GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
         SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD }}
-        RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
+        RECIPIENT_EMAIL_BULLETS: ${{ secrets.RECIPIENT_EMAIL_BULLETS }}
+        RECIPIENT_EMAIL_LINKEDIN: ${{ secrets.RECIPIENT_EMAIL_LINKEDIN }}
         NEWS_API_KEY: ${{ secrets.NEWS_API_KEY }}
       run: python daily_emailer.py
