@@ -13,6 +13,8 @@ import re
 from urllib.parse import urlparse, urlunparse # Added for URL cleaning
 import pytz # Added pytz import
 import html # Added for escaping HTML in email
+import json
+from pathlib import Path
 
 # Load environment variables
 load_dotenv()
@@ -30,8 +32,60 @@ SENDER_PASSWORD = os.getenv('SENDER_PASSWORD')
 RECIPIENT_EMAILS_BULLETS = [email.strip() for email in os.getenv('RECIPIENT_EMAIL_BULLETS', '').split(',') if email.strip()]
 NEWS_API_KEY = os.getenv('NEWS_API_KEY') # Added News API Key loading
 
+def load_sent_articles():
+    """Load previously sent articles from cache file."""
+    cache_file = Path('sent_articles_cache.json')
+    if cache_file.exists():
+        try:
+            with open(cache_file, 'r') as f:
+                cache = json.load(f)
+                # Remove entries older than 30 days
+                now = datetime.now()
+                cache = {
+                    url: date for url, date in cache.items()
+                    if datetime.strptime(date, '%Y-%m-%d') > (now - timedelta(days=30))
+                }
+                return cache
+        except Exception as e:
+            print(f"Error loading cache: {e}")
+    return {}
+
+def save_sent_articles(cache):
+    """Save sent articles to cache file."""
+    cache_file = Path('sent_articles_cache.json')
+    try:
+        with open(cache_file, 'w') as f:
+            json.dump(cache, f)
+    except Exception as e:
+        print(f"Error saving cache: {e}")
+
+def is_weekend_et():
+    """Check if current US/Eastern time is a weekend."""
+    et_tz = pytz.timezone('US/Eastern')
+    et_now = datetime.now(et_tz)
+    # 5 = Saturday, 6 = Sunday
+    return et_now.weekday() in [5, 6]
+
+def get_date_range_et():
+    """Get appropriate date range based on current day in ET."""
+    et_tz = pytz.timezone('US/Eastern')
+    et_now = datetime.now(et_tz)
+    weekday = et_now.weekday()  # 0 = Monday, 1 = Tuesday, etc.
+    
+    to_date = et_now
+    if weekday == 0:  # If Monday
+        # Look back 72 hours to cover the weekend
+        from_date = et_now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=3)
+        print("Monday detected - fetching news from the past 72 hours")
+    else:
+        # Regular 24-hour window
+        from_date = et_now.replace(hour=0, minute=0, second=0, microsecond=0)
+        print("Regular day - fetching news from the past 24 hours")
+    
+    return from_date, to_date
+
 def get_australian_ai_news():
-    """Fetches relevant Australian AI news from the past 7 days using News API."""
+    """Fetches relevant Australian AI news using News API."""
     try:
         print("Fetching Australian AI news using News API...")
         if not NEWS_API_KEY:
@@ -40,13 +94,12 @@ def get_australian_ai_news():
 
         newsapi = NewsApiClient(api_key=NEWS_API_KEY)
 
-        # Calculate dates for the past 7 days based on US/Eastern Time
-        et_tz = pytz.timezone('US/Eastern')
-        et_now = datetime.now(et_tz)
-        to_date = et_now
-        from_date = to_date - timedelta(days=7)
+        # Get appropriate date range
+        from_date, to_date = get_date_range_et()
         from_param = from_date.strftime('%Y-%m-%d')
         to_param = to_date.strftime('%Y-%m-%d')
+
+        print(f"Searching for news from {from_param} to {to_param}")
 
         # Broader search queries to cast a wider net
         queries = [
@@ -69,20 +122,26 @@ def get_australian_ai_news():
 
         all_articles = []
         for query in queries:
-            print(f"Querying News API with: '{query}'")
+            print(f"Querying News API with: '{query}' for date range {from_param} to {to_param}")
             try:
                 response = newsapi.get_everything(
                     q=query,
                                               from_param=from_param,
                                               to=to_param,
                                               language='en',
-                                              sort_by='relevancy',
-                    page_size=30  # Increased page size for more candidates
+                    sort_by='publishedAt',
+                    page_size=30
                 )
                 
                 if response['status'] == 'ok':
-                    all_articles.extend(response['articles'])
-                    print(f"Found {len(response['articles'])} articles for query: {query}")
+                    # Filter articles by publishedAt date within our date range
+                    valid_articles = [
+                        article for article in response['articles']
+                        if article.get('publishedAt') and 
+                        from_date.date() <= datetime.strptime(article['publishedAt'][:10], '%Y-%m-%d').date() <= to_date.date()
+                    ]
+                    all_articles.extend(valid_articles)
+                    print(f"Found {len(valid_articles)} articles within date range from query: {query}")
                 else:
                     print(f"Error in query '{query}': {response.get('message', 'Unknown error')}")
             
@@ -99,7 +158,7 @@ def get_australian_ai_news():
                 seen_urls.add(url)
                 unique_articles.append(article)
 
-        print(f"Total unique articles found: {len(unique_articles)}")
+        print(f"Total unique articles found for the period: {len(unique_articles)}")
 
         # Enhanced relevance checking
         filtered_articles = []
@@ -118,44 +177,58 @@ def get_australian_ai_news():
                 '.au' in url
             ])
 
-            # Check for AI relevance
-            is_ai_related = any(
-                keyword in title or 
-                keyword in description or 
-                keyword in content
+            # Check for AI relevance (more strict)
+            ai_relevance_score = sum(
+                2 if keyword in title else  # Higher weight for title matches
+                1 if keyword in description or keyword in content else
+                0
                 for keyword in ai_keywords
             )
 
-            # Additional context check to ensure the article is actually about AI
+            # Additional context check
             def has_strong_ai_context(text):
                 # Count occurrences of AI-related terms
                 ai_term_count = sum(text.count(keyword) for keyword in ai_keywords)
-                # Check if AI terms appear in the first 100 characters (likely more important)
+                # Check if AI terms appear in the first 100 characters
                 ai_in_beginning = any(keyword in text[:100] for keyword in ai_keywords)
-                return ai_term_count >= 2 or ai_in_beginning
+                # Check for specific phrases that indicate AI focus
+                ai_focus_phrases = [
+                    'artificial intelligence', 'machine learning', 'deep learning',
+                    'ai technology', 'ai development', 'ai research'
+                ]
+                has_focus_phrase = any(phrase in text for phrase in ai_focus_phrases)
+                return (ai_term_count >= 2 and (ai_in_beginning or has_focus_phrase))
 
             has_context = has_strong_ai_context(title + ' ' + description + ' ' + content)
 
-            if is_australian and is_ai_related and has_context:
+            if is_australian and ai_relevance_score >= 2 and has_context:
                 filtered_articles.append({
                     'title': article.get('title', ''),
                         'summary': description if description else 'No description available.',
                         'content': content,
-                    'url': article.get('url', '')
+                    'url': article.get('url', ''),
+                    'publishedAt': article.get('publishedAt', ''),
+                    'relevance_score': ai_relevance_score
                     })
                 print(f"Added (Relevant): {article.get('title', '')}")
                 print(f"Source: {source_name}")
-                print(f"AI keywords found in: {'title' if is_ai_related else ''} {'description' if any(k in description for k in ai_keywords) else ''}")
+                print(f"AI relevance score: {ai_relevance_score}")
+                print(f"Published at: {article.get('publishedAt', '')}")
             else:
                 print(f"Skipped: {article.get('title', '')}")
-                print(f"Reason: {'Not Australian' if not is_australian else ''} {'Not AI-related' if not is_ai_related else ''} {'Weak AI context' if not has_context else ''}")
+                print(f"Reason: {'Not Australian' if not is_australian else ''} "
+                      f"{'Low AI relevance' if ai_relevance_score < 2 else ''} "
+                      f"{'Weak AI context' if not has_context else ''}")
 
-        print(f"Total relevant articles found: {len(filtered_articles)}")
+        print(f"Total relevant articles found for the period: {len(filtered_articles)}")
         
-        # Sort by relevance (prioritize articles with AI in title)
-        filtered_articles.sort(key=lambda x: sum(k in x['title'].lower() for k in ai_keywords), reverse=True)
+        # Sort by publication date (most recent first) and then relevance score
+        filtered_articles.sort(key=lambda x: (
+            datetime.strptime(x.get('publishedAt', '2000-01-01'), '%Y-%m-%dT%H:%M:%SZ'),
+            x['relevance_score']
+        ), reverse=True)
         
-        # Return up to 3 most relevant articles
+        # Return up to 3 most recent, relevant articles
         return filtered_articles[:3]
 
     except Exception as e:
@@ -285,6 +358,61 @@ Article:
         raise
 
 
+def format_articles_html(articles_list, section_type=""):
+    """Format articles into HTML with improved error handling and messaging."""
+    if not articles_list:
+        message = ""
+        et_tz = pytz.timezone('US/Eastern')
+        et_now = datetime.now(et_tz)
+        weekday = et_now.weekday()
+        
+        if is_weekend_et():
+            message = "No updates available on weekends."
+        elif section_type == "Australian" and weekday == 0:
+            message = "No Australian AI news found for the weekend period."
+        elif section_type == "Australian":
+            message = "No Australian AI news found for today."
+        elif section_type == "Global":
+            message = "No global AI updates available for today."
+        else:
+            message = "No updates found."
+            
+        return f"""
+            <div class="no-updates">
+                <p style="color: #666; font-style: italic;">{message}</p>
+            </div>
+        """
+
+    html_output = ""
+    for article in articles_list:
+        escaped_summary = html.escape(str(article.get('summary', '')).strip())
+        summary_lines = escaped_summary.split('\n')
+        
+        # Filter and clean bullet points, ensuring consistent color
+        bullet_lines = []
+        for line in summary_lines:
+            line = line.strip()
+            if line and not line.startswith('Here are') and not line.startswith('Anthropic'):
+                # Remove any existing HTML color styling
+                line = re.sub(r'<[^>]*>', '', line)  # Remove any HTML tags
+                line = re.sub(r'style="[^"]*"', '', line)  # Remove any style attributes
+                bullet_lines.append(line)
+
+        # Convert to HTML list items with consistent styling
+        list_items = "".join(
+            f'<li style="color: #333;">{line.strip("-* ")}</li>'
+            for line in bullet_lines
+        )
+
+        html_output += f"""
+            <div class="article">
+                <h4>{html.escape(article.get('title', 'No Title'))}</h4>
+                <ul style="color: #333;">{list_items}</ul>
+                <p class="read-more"><a href="{html.escape(article.get('url', '#'))}" target="_blank">Read more →</a></p>
+            </div>
+        """
+    return html_output
+
 def send_bullet_points_email(global_articles_data, australian_articles_data):
     """Sends the bullet point summaries as an HTML email."""
     if not RECIPIENT_EMAILS_BULLETS or not any(RECIPIENT_EMAILS_BULLETS):
@@ -300,35 +428,17 @@ def send_bullet_points_email(global_articles_data, australian_articles_data):
         et_now = datetime.now(et_tz)
         msg['Subject'] = f"Daily AI News Summary - {et_now.strftime('%Y-%m-%d')} (ET)"
 
-        # --- Helper function to format articles into HTML bullet points ---
-        def format_articles_html(articles_list):
-            if not articles_list:
-                return "<p>No updates found.</p>"
-            html_output = ""
-            for article in articles_list:
-                escaped_summary = html.escape(str(article.get('summary', '')).strip())
-                # Remove the introductory line and clean up bullet points
-                summary_lines = escaped_summary.split('\n')
-                # Filter out the introductory lines and empty lines
-                bullet_lines = [line.strip() for line in summary_lines 
-                               if line.strip() 
-                               and not line.startswith('Here are') 
-                               and not line.startswith('Anthropic')]
-                # Convert to HTML list items, removing any bullet characters
-                list_items = "".join(f"<li>{line.strip('-* ')}</li>" 
-                                    for line in bullet_lines)
+        # Format articles with section type for appropriate messaging
+        global_html = format_articles_html(global_articles_data, "Global")
+        australian_html = format_articles_html(australian_articles_data, "Australian")
 
-                html_output += f"""
-                    <div class="article">
-                    <h4>{html.escape(article.get('title', 'No Title'))}</h4>
-                    <ul>{list_items}</ul>
-                        <p class="read-more"><a href="{html.escape(article.get('url', '#'))}" target="_blank">Read more →</a></p>
-                    </div>
-                """
-            return html_output
+        # Only send email if we have content or it's a regular weekday
+        if is_weekend_et():
+            print("Weekend detected. Skipping email send.")
+            return
 
-        global_html = format_articles_html(global_articles_data)
-        australian_html = format_articles_html(australian_articles_data)
+        if not global_articles_data and not australian_articles_data:
+            print("No articles found for either section. Sending email with 'no updates' messages.")
 
         # HTML Body with improved styling and logo
         body = f"""
@@ -420,7 +530,7 @@ def send_bullet_points_email(global_articles_data, australian_articles_data):
             margin-bottom: 20px;
             border-radius: 5px;
             border-left: 4px solid #5D3FD3;
-            text-align: left;  /* Ensure article content is left-aligned */
+            color: #333;  /* Default text color */
         }}
         .article h4 {{
             margin: 0 0 15px 0;
@@ -431,12 +541,12 @@ def send_bullet_points_email(global_articles_data, australian_articles_data):
         ul {{
             margin: 15px 0;
             padding-left: 25px;
-            text-align: left;  /* Ensure bullet points are left-aligned */
+            color: #333;  /* Consistent color for lists */
         }}
         li {{
             margin-bottom: 8px;
             line-height: 1.5;
-            text-align: left;  /* Ensure list items are left-aligned */
+            color: #333;  /* Consistent color for list items */
         }}
         .read-more {{
             margin-top: 15px;
@@ -464,6 +574,47 @@ def send_bullet_points_email(global_articles_data, australian_articles_data):
             color: #666;
             margin: 0 10px;
         }}
+        .no-updates {{
+            background-color: #f9f9f9;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            text-align: center;
+        }}
+        .header-title {{
+            color: #2c3e50;
+            font-size: 2em;
+            margin: 30px 0 10px 0;
+            text-align: center;
+        }}
+        
+        .header-date {{
+            color: #666;
+            text-align: center;
+            margin: 0 0 40px 0;
+            font-size: 1.1em;
+        }}
+        
+        .section-title {{
+            color: #2c3e50;
+            font-size: 1.6em;
+            margin: 40px 0 20px 0;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #5D3FD3;
+            text-align: center;  /* Center align the section titles */
+            width: 80%;  /* Limit the width so the border isn't full width */
+            margin-left: auto;  /* Center the element itself */
+            margin-right: auto;  /* Center the element itself */
+        }}
+        
+        /* Remove any other border/line styles that might interfere */
+        .container {{
+            border: none;
+        }}
+        
+        .header {{
+            border-bottom: none;
+        }}
     </style>
 </head>
 <body>
@@ -477,16 +628,16 @@ def send_bullet_points_email(global_articles_data, australian_articles_data):
                 <img src="cid:goldBadge" alt="Gold Badge" class="badge gold">
                 <img src="cid:silverBadge" alt="Silver Badge" class="badge">
             </div>
-            <h2>Daily AI News Summary</h2>
-            <p class="date">{et_now.strftime('%B %d, %Y')} (ET)</p>
+            <h1 class="header-title">Daily AI News Summary</h1>
+            <p class="header-date">{et_now.strftime('%B %d, %Y')} (ET)</p>
         </div>
 
-    <h2>Global AI Updates</h2>
+        <h2 class="section-title">Global AI Updates</h2>
     <div class="article-section">
         {global_html}
     </div>
 
-    <h2>Australian AI Updates</h2>
+        <h2 class="section-title">Australian AI Updates</h2>
     <div class="article-section">
         {australian_html}
     </div>
@@ -541,35 +692,28 @@ def send_bullet_points_email(global_articles_data, australian_articles_data):
         raise
 
 
-def is_weekend_et():
-    """Check if current US/Eastern time is a weekend."""
-    et_tz = pytz.timezone('US/Eastern')
-    et_now = datetime.now(et_tz)
-    # 5 = Saturday, 6 = Sunday
-    return et_now.weekday() in [5, 6]
-
-
 def main():
     """Main function to fetch news, generate content, and send emails."""
     try:
         print("Starting main process...")
         
-        # Check if it's weekend in ET
         if is_weekend_et():
             print("Weekend detected in ET timezone. Skipping news updates.")
             return
 
-        # Lists to hold generated content (removed LinkedIn-related lists)
+        # Lists to hold generated content
         global_bullet_points = []
         aus_bullet_points = []
 
         # Get global articles
         print("\nFetching global articles...")
-        global_articles = get_tldr_articles()
+        try:
+            global_articles = get_tldr_articles()
+        except Exception as e:
+            print(f"Error fetching global articles: {e}")
+            global_articles = []
 
-        if not global_articles:
-            print("No global articles found for today.")
-        else:
+        if global_articles:
             print("\nGenerating global content...")
             num_global_articles = min(len(global_articles), 3)
             for i in range(num_global_articles):
@@ -582,11 +726,13 @@ def main():
 
         # Get Australian articles
         print("\nFetching Australian articles...")
-        australian_articles = get_australian_ai_news()
+        try:
+            australian_articles = get_australian_ai_news()
+        except Exception as e:
+            print(f"Error fetching Australian articles: {e}")
+            australian_articles = []
 
-        if not australian_articles:
-            print("No Australian articles found.")
-        else:
+        if australian_articles:
             print("\nGenerating Australian content...")
             num_aus_articles = min(len(australian_articles), 3)
             for i in range(num_aus_articles):
@@ -599,14 +745,11 @@ def main():
 
         # Send bullet points email (HTML)
         if RECIPIENT_EMAILS_BULLETS:
-             if global_bullet_points or aus_bullet_points:
                  print("\nSending bullet points email...")
                  try:
                      send_bullet_points_email(global_bullet_points, aus_bullet_points)
                  except Exception as e:
                      print(f"Failed to send bullet points email: {e}")
-             else:
-                 print("\nNo bullet point content generated to send.")
         else:
              print("\nSkipping bullet points email: No recipients configured (RECIPIENT_EMAIL_BULLETS).")
 
