@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.mime.image import MIMEImage
 from dotenv import load_dotenv
 from newsapi import NewsApiClient
 import re
@@ -285,21 +286,19 @@ Article:
         raise
 
 
-def send_bullet_points_email(global_articles_data, australian_articles_data): # Renamed function
+def send_bullet_points_email(global_articles_data, australian_articles_data):
     """Sends the bullet point summaries as an HTML email."""
-    # Use the specific recipient list for bullet points
     if not RECIPIENT_EMAILS_BULLETS or not any(RECIPIENT_EMAILS_BULLETS):
         print("Error: No recipient emails configured for bullet points (RECIPIENT_EMAIL_BULLETS).")
-        return # Or raise an error
+        return
 
     try:
         print(f"Preparing bullet points email via BCC to {len(RECIPIENT_EMAILS_BULLETS)} recipients.")
         msg = MIMEMultipart()
         msg['From'] = SENDER_EMAIL
-        msg['To'] = SENDER_EMAIL # For BCC
+        msg['To'] = SENDER_EMAIL
         et_tz = pytz.timezone('US/Eastern')
         et_now = datetime.now(et_tz)
-        # Subject for bullet points email
         msg['Subject'] = f"Daily AI News Summary - {et_now.strftime('%Y-%m-%d')} (ET)"
 
         # --- Helper function to format articles into HTML bullet points ---
@@ -308,26 +307,31 @@ def send_bullet_points_email(global_articles_data, australian_articles_data): # 
                 return "<p>No updates found.</p>"
             html_output = ""
             for article in articles_list:
-                # Ensure summary (which contains the bullet points) is treated as a string
-                summary_text = str(article.get('summary', '')).strip()
-                # Escape HTML characters in the generated bullet points
-                escaped_summary = html.escape(summary_text)
-                # Split into lines and format as list items
+                escaped_summary = html.escape(str(article.get('summary', '')).strip())
+                # Remove the introductory line and clean up bullet points
                 summary_lines = escaped_summary.split('\n')
-                list_items = "".join(f"<li>{line.strip('-* ')}</li>" for line in summary_lines if line.strip())
+                # Filter out the introductory lines and empty lines
+                bullet_lines = [line.strip() for line in summary_lines 
+                               if line.strip() 
+                               and not line.startswith('Here are') 
+                               and not line.startswith('Anthropic')]
+                # Convert to HTML list items, removing any bullet characters
+                list_items = "".join(f"<li>{line.strip('-* ')}</li>" 
+                                    for line in bullet_lines)
 
                 html_output += f"""
-                    <h4>{html.escape(article.get('title', 'No Title'))}</h4>
-                    <ul>{list_items}</ul>
-                    <p><a href="{html.escape(article.get('url', '#'))}" target="_blank">Read more</a></p>
+                    <div class="article">
+                        <h4>{html.escape(article.get('title', 'No Title'))}</h4>
+                        <ul>{list_items}</ul>
+                        <p class="read-more"><a href="{html.escape(article.get('url', '#'))}" target="_blank">Read more →</a></p>
+                    </div>
                 """
             return html_output
-        # --- End Helper ---
 
         global_html = format_articles_html(global_articles_data)
         australian_html = format_articles_html(australian_articles_data)
 
-        # HTML Body for bullet points
+        # HTML Body with improved styling and logo
         body = f"""
 <!DOCTYPE html>
 <html>
@@ -336,37 +340,149 @@ def send_bullet_points_email(global_articles_data, australian_articles_data): # 
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Daily AI News Summary</title>
     <style>
-        body {{ font-family: sans-serif; line-height: 1.6; margin: 20px; color: #333; }}
-        h2 {{ color: #333; border-bottom: 2px solid #eee; padding-bottom: 8px; margin-top: 30px; font-size: 1.4em; }}
-        h4 {{ margin-bottom: 8px; color: #555; font-size: 1.1em; }}
-        ul {{ margin-top: 0; padding-left: 25px; margin-bottom: 15px; }}
-        li {{ margin-bottom: 6px; }}
-        p {{ margin-bottom: 15px; }}
-        a {{ color: #007bff; text-decoration: none; }}
-        a:hover {{ text-decoration: underline; }}
-        hr {{ border: 0; border-top: 1px solid #ccc; margin: 30px 0; }}
-        .footer {{ font-size: 0.9em; color: #777; margin-top: 30px; text-align: center; }}
-        .article-section {{ margin-bottom: 20px; }}
+        body {{
+            font-family: 'Segoe UI', Arial, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 0;
+            color: #333;
+            background-color: #f5f5f5;
+        }}
+        .container {{
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #ffffff;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }}
+        .header {{
+            text-align: center;
+            padding: 20px 0;
+            border-bottom: 2px solid #eee;
+        }}
+        .logo {{
+            max-width: 200px;
+            height: auto;
+            margin-bottom: 20px;
+        }}
+        h2 {{
+            color: #2c3e50;
+            border-bottom: 2px solid #5D3FD3;
+            padding-bottom: 8px;
+            margin-top: 30px;
+            font-size: 1.6em;
+        }}
+        .article {{
+            background-color: #fff;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+            border-left: 4px solid #5D3FD3;
+        }}
+        h4 {{
+            margin: 0 0 15px 0;
+            color: #2c3e50;
+            font-size: 1.2em;
+        }}
+        ul {{
+            margin: 15px 0;
+            padding-left: 25px;
+        }}
+        li {{
+            margin-bottom: 8px;
+            line-height: 1.5;
+        }}
+        .read-more {{
+            margin-top: 15px;
+        }}
+        .read-more a {{
+            color: #5D3FD3;
+            text-decoration: none;
+            font-weight: 500;
+        }}
+        .read-more a:hover {{
+            text-decoration: underline;
+            color: #4B0082;
+        }}
+        .footer {{
+            text-align: center;
+            padding: 20px;
+            color: #666;
+            font-size: 0.9em;
+            border-top: 1px solid #eee;
+            margin-top: 30px;
+        }}
+        .header-link {{
+            display: block;
+            text-decoration: none;
+            margin-bottom: 10px;
+        }}
+        .header-link:hover img {{
+            opacity: 0.9;
+        }}
+        .footer-links {{
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid #eee;
+            text-align: center;
+        }}
+        .footer-links a {{
+            color: #5D3FD3;
+            text-decoration: none;
+            font-weight: 500;
+        }}
+        .footer-links a:hover {{
+            text-decoration: underline;
+            color: #4B0082;
+        }}
+        .divider {{
+            color: #666;
+            margin: 0 10px;
+        }}
     </style>
 </head>
 <body>
-    <h2>Global AI Updates</h2>
-    <div class="article-section">
-        {global_html}
+    <div class="container">
+        <div class="header">
+            <a href="https://www.responsibleaiaustralia.com.au/" class="header-link" target="_blank">
+                <img src="cid:logo" alt="Logo" class="logo">
+            </a>
+            <h2 style="margin-top: 0;">Daily AI News Summary</h2>
+            <p style="color: #666;">{et_now.strftime('%B %d, %Y')} (ET)</p>
+        </div>
+
+        <h2>Global AI Updates</h2>
+        <div class="article-section">
+            {global_html}
+        </div>
+
+        <h2>Australian AI Updates</h2>
+        <div class="article-section">
+            {australian_html}
+        </div>
+
+        <div class="footer">
+            <p>Generated summaries based on recent AI news.</p>
+            <div class="footer-links">
+                <a href="https://www.responsibleaiaustralia.com.au/" target="_blank">Visit Responsble.ai</a>
+                <span class="divider">|</span>
+                <a href="https://www.responsibleaiaustralia.com.au/contact" target="_blank">Contact Us</a>
+            </div>
+        </div>
     </div>
-
-    <hr>
-
-    <h2>Australian AI Updates</h2>
-    <div class="article-section">
-        {australian_html}
-    </div>
-
-    <p class="footer">Generated summaries based on recent AI news.</p>
 </body>
 </html>
 """
-        msg.attach(MIMEText(body, 'html', 'utf-8')) # Specify utf-8 encoding
+        # Add HTML content
+        msg_html = MIMEText(body, 'html', 'utf-8')
+        msg.attach(msg_html)
+
+        # Add logo image
+        with open('assets/image001.png', 'rb') as f:
+            img = MIMEImage(f.read())
+            img.add_header('Content-ID', '<logo>')
+            img.add_header('Content-Disposition', 'inline', filename='image001.png')
+            msg.attach(img)
 
         print("Connecting to SMTP server for bullet points email...")
         server = smtplib.SMTP_SSL('mail.inventico.io', 465)
