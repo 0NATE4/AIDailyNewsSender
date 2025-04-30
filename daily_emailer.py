@@ -15,6 +15,7 @@ import pytz # Added pytz import
 import html # Added for escaping HTML in email
 import json
 from pathlib import Path
+from email.utils import formataddr
 
 # Load environment variables
 load_dotenv()
@@ -422,8 +423,8 @@ def send_bullet_points_email(global_articles_data, australian_articles_data):
     try:
         print(f"Preparing bullet points email via BCC to {len(RECIPIENT_EMAILS_BULLETS)} recipients.")
         msg = MIMEMultipart()
-        msg['From'] = SENDER_EMAIL
-        msg['To'] = SENDER_EMAIL
+        msg['From'] = formataddr(("Responsible AI Australia", os.getenv('EMAIL_SENDER')))
+        msg['To'] = ", ".join(RECIPIENT_EMAILS_BULLETS)
         et_tz = pytz.timezone('US/Eastern')
         et_now = datetime.now(et_tz)
         msg['Subject'] = f"Daily AI News Summary - {et_now.strftime('%Y-%m-%d')} (ET)"
