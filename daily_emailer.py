@@ -27,7 +27,6 @@ SENDER_EMAIL = os.getenv('SENDER_EMAIL')
 SENDER_PASSWORD = os.getenv('SENDER_PASSWORD')
 # Split recipient emails by comma for different formats
 # Filter out empty strings that might result from trailing commas
-RECIPIENT_EMAILS_LINKEDIN = [email.strip() for email in os.getenv('RECIPIENT_EMAIL_LINKEDIN', '').split(',') if email.strip()]
 RECIPIENT_EMAILS_BULLETS = [email.strip() for email in os.getenv('RECIPIENT_EMAIL_BULLETS', '').split(',') if email.strip()]
 NEWS_API_KEY = os.getenv('NEWS_API_KEY') # Added News API Key loading
 
@@ -45,64 +44,119 @@ def get_australian_ai_news():
         et_tz = pytz.timezone('US/Eastern')
         et_now = datetime.now(et_tz)
         to_date = et_now
-        from_date = to_date - timedelta(days=7) # Fetch news from the past week
+        from_date = to_date - timedelta(days=7)
         from_param = from_date.strftime('%Y-%m-%d')
         to_param = to_date.strftime('%Y-%m-%d')
 
-        # Refined search query for AI news specifically related to Australia
-        query = '("Australian AI" OR "AI in Australia" OR ("artificial intelligence" AND Australia))'
-        print(f"Querying News API with: '{query}', from: {from_param}, to: {to_param}")
+        # Broader search queries to cast a wider net
+        queries = [
+            '("artificial intelligence" OR "AI") AND (Australia OR Australian)',
+            'machine learning AND (Australia OR Australian)',
+            '(chatbot OR "language model" OR LLM) AND (Australia OR Australian)',
+            '("deep learning" OR "neural network") AND (Australia OR Australian)',
+            'AI startup AND (Australia OR Australian)',
+            '(AI policy OR "AI regulation") AND (Australia OR Australian)'
+        ]
 
-        all_articles = newsapi.get_everything(q=query,
+        # AI-related keywords for relevance checking
+        ai_keywords = [
+            'artificial intelligence', 'ai ', 'machine learning', 'deep learning',
+            'neural network', 'chatbot', 'language model', 'llm', 'ml ', 
+            'computer vision', 'nlp ', 'natural language processing',
+            'ai-powered', 'ai powered', 'ai-based', 'ai based',
+            'automation', 'robotics', 'algorithm'
+        ]
+
+        all_articles = []
+        for query in queries:
+            print(f"Querying News API with: '{query}'")
+            try:
+                response = newsapi.get_everything(
+                    q=query,
                                               from_param=from_param,
                                               to=to_param,
                                               language='en',
                                               sort_by='relevancy',
-                                              page_size=20) # Fetch more results for better filtering
+                    page_size=30  # Increased page size for more candidates
+                )
+                
+                if response['status'] == 'ok':
+                    all_articles.extend(response['articles'])
+                    print(f"Found {len(response['articles'])} articles for query: {query}")
+                else:
+                    print(f"Error in query '{query}': {response.get('message', 'Unknown error')}")
+            
+            except Exception as e:
+                print(f"Error processing query '{query}': {str(e)}")
+                continue
 
+        # Deduplicate articles based on URL
+        seen_urls = set()
+        unique_articles = []
+        for article in all_articles:
+            url = article.get('url', '')
+            if url and url not in seen_urls:
+                seen_urls.add(url)
+                unique_articles.append(article)
+
+        print(f"Total unique articles found: {len(unique_articles)}")
+
+        # Enhanced relevance checking
         filtered_articles = []
-        if all_articles['status'] == 'ok':
-            print(f"News API returned {all_articles['totalResults']} raw articles.")
-            for article in all_articles['articles']:
-                title = article.get('title', '')
-                description = article.get('description', '') or '' # Ensure description is string
-                url = article.get('url', '')
-                source_name = article.get('source', {}).get('name', '')
-                content = article.get('content', '') or '' # Get content field, ensure string
+        for article in unique_articles:
+            title = article.get('title', '').lower()
+            description = article.get('description', '').lower() if article.get('description') else ''
+            content = article.get('content', '').lower() if article.get('content') else ''
+            source_name = article.get('source', {}).get('name', '').lower()
+            url = article.get('url', '').lower()
 
-                # Check for Australian relevance in title, description, source, or URL
-                is_relevant = False
-                if re.search(r'\b(Australia|Australian)\b', title, re.IGNORECASE):
-                    is_relevant = True
-                elif description and re.search(r'\b(Australia|Australian)\b', description, re.IGNORECASE):
-                     is_relevant = True
-                elif re.search(r'\b(Australia|Australian)\b', source_name, re.IGNORECASE):
-                     is_relevant = True
-                elif '.au' in url:
-                     is_relevant = True
+            # Check for Australian relevance
+            is_australian = any([
+                re.search(r'\b(australia|australian)\b', title),
+                re.search(r'\b(australia|australian)\b', description),
+                re.search(r'\b(australia|australian)\b', source_name),
+                '.au' in url
+            ])
 
-                if is_relevant:
-                    filtered_articles.append({
-                        'title': title,
-                        # Store both description and content
+            # Check for AI relevance
+            is_ai_related = any(
+                keyword in title or 
+                keyword in description or 
+                keyword in content
+                for keyword in ai_keywords
+            )
+
+            # Additional context check to ensure the article is actually about AI
+            def has_strong_ai_context(text):
+                # Count occurrences of AI-related terms
+                ai_term_count = sum(text.count(keyword) for keyword in ai_keywords)
+                # Check if AI terms appear in the first 100 characters (likely more important)
+                ai_in_beginning = any(keyword in text[:100] for keyword in ai_keywords)
+                return ai_term_count >= 2 or ai_in_beginning
+
+            has_context = has_strong_ai_context(title + ' ' + description + ' ' + content)
+
+            if is_australian and is_ai_related and has_context:
+                filtered_articles.append({
+                    'title': article.get('title', ''),
                         'summary': description if description else 'No description available.',
                         'content': content,
-                        'url': url
+                    'url': article.get('url', '')
                     })
-                    print(f"Added (Relevant): {title}")
-                else:
-                     print(f"Skipped (Not relevant): {title} | Source: {source_name}") # Log skipped articles
+                print(f"Added (Relevant): {article.get('title', '')}")
+                print(f"Source: {source_name}")
+                print(f"AI keywords found in: {'title' if is_ai_related else ''} {'description' if any(k in description for k in ai_keywords) else ''}")
+            else:
+                print(f"Skipped: {article.get('title', '')}")
+                print(f"Reason: {'Not Australian' if not is_australian else ''} {'Not AI-related' if not is_ai_related else ''} {'Weak AI context' if not has_context else ''}")
 
-                # Stop if we have enough relevant articles
-                if len(filtered_articles) >= 3:
-                    break
-        else:
-            print(f"Error fetching from News API: {all_articles.get('message', 'Unknown error')}")
-            return []
-
-        print(f"Total relevant Australian articles found and filtered: {len(filtered_articles)}")
-        # Return up to 3 relevant articles (already ensured by the break condition)
-        return filtered_articles
+        print(f"Total relevant articles found: {len(filtered_articles)}")
+        
+        # Sort by relevance (prioritize articles with AI in title)
+        filtered_articles.sort(key=lambda x: sum(k in x['title'].lower() for k in ai_keywords), reverse=True)
+        
+        # Return up to 3 most relevant articles
+        return filtered_articles[:3]
 
     except Exception as e:
         print(f"Error in get_australian_ai_news: {str(e)}")
@@ -231,61 +285,6 @@ Article:
         raise
 
 
-def generate_linkedin_post(article, is_australian=False):
-    """Generates a LinkedIn post based on an article."""
-    try:
-        # Construct the prompt for LinkedIn post (from daily_emailer.py)
-        guidelines = """
-Guidelines:
-1. Begin with an engaging hook that captures the core theme of the article.
-2. Summarise the main point or breakthrough, highlighting its relevance or potential impact.
-3. Briefly reflect on why this development matters in the context of ethical, safe, or transparent AI.
-4. Tie it back to "responsble.ai" (notice that its responsble, NOT responsible), and its mission of supporting responsible, standards-based AI certification."""
-
-        if is_australian:
-            guidelines += "\n5. Explicitly mention the Australian context of this news (e.g., using 'Australia', 'Australian', 'Aussie')."
-            guidelines += "\n6. End with a thoughtful question that invites discussion."
-            guidelines += "\n7. Keep it around 200 words."
-            guidelines += "\n8. Use 2 relevant hashtags and 1 well-placed emoji."
-            prompt_prefix = "Australian AI Update: "
-            # Prioritize using 'content' if available and substantially longer
-            content_text = article.get('content', '') or ''
-            description_text = article.get('summary', '') or '' # 'summary' key holds description
-            if content_text and len(content_text) > len(description_text) + 20:
-                 summary_to_use = content_text
-                 source_used = 'content' # Keep track for potential debugging
-            else:
-                 summary_to_use = description_text
-                 source_used = 'summary/description' # Keep track for potential debugging
-        else:
-            guidelines += "\n5. End with a thoughtful question that invites discussion."
-            guidelines += "\n6. Keep it around 200 words."
-            guidelines += "\n7. Use 2 relevant hashtags and 1 well-placed emoji."
-            prompt_prefix = "" # No prefix for global posts
-            # For global news, use the scraped summary
-            summary_to_use = article.get('summary', '')
-            source_used = 'summary/description' # Indicate source for consistency
-
-        # LinkedIn prompt structure (from daily_emailer.py)
-        prompt = f"""Write a professional, natural-sounding LinkedIn post based on the following article.
-{guidelines}
-
-Tone: Authentic, clear, and conversational — like a seasoned Australian copywriter writing for a professional but curious audience. No "-"
-
-Article:
-{prompt_prefix}{article['title']}
-{summary_to_use}
-"""
-        print(f"Generating LinkedIn post for article: {article['title']} (Using {source_used})")
-        response = model.generate_content(prompt)
-        print("Post generated successfully")
-        # Return formatted post string
-        return f"{response.text}\n\nRead more: {article['url']}"
-    except Exception as e:
-        print(f"Error generating LinkedIn post: {str(e)}")
-        raise
-
-
 def send_bullet_points_email(global_articles_data, australian_articles_data):
     """Sends the bullet point summaries as an HTML email."""
     if not RECIPIENT_EMAILS_BULLETS or not any(RECIPIENT_EMAILS_BULLETS):
@@ -321,8 +320,8 @@ def send_bullet_points_email(global_articles_data, australian_articles_data):
 
                 html_output += f"""
                     <div class="article">
-                        <h4>{html.escape(article.get('title', 'No Title'))}</h4>
-                        <ul>{list_items}</ul>
+                    <h4>{html.escape(article.get('title', 'No Title'))}</h4>
+                    <ul>{list_items}</ul>
                         <p class="read-more"><a href="{html.escape(article.get('url', '#'))}" target="_blank">Read more →</a></p>
                     </div>
                 """
@@ -354,23 +353,66 @@ def send_bullet_points_email(global_articles_data, australian_articles_data):
             padding: 20px;
             background-color: #ffffff;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            text-align: center;  /* Center all content by default */
         }}
         .header {{
             text-align: center;
             padding: 20px 0;
             border-bottom: 2px solid #eee;
+            margin: 0 auto;
         }}
         .logo {{
-            max-width: 200px;
+            display: block;
+            max-width: 180px;
             height: auto;
-            margin-bottom: 20px;
+            margin: 0 auto 15px;  /* Reduced bottom margin from 25px to 15px */
+        }}
+        .badges-row {{
+            display: inline-block;
+            text-align: center;
+            margin: 15px auto;
+            width: 100%;
+        }}
+        .badge {{
+            display: inline-block;
+            width: 80px;
+            height: auto;
+            margin: 0 15px;
+            vertical-align: middle;
+            transition: transform 0.2s;
+        }}
+        .badge.gold {{
+            width: 100px;  /* Larger size for gold badge */
+            margin: 0 20px;  /* Slightly more margin for gold badge */
+        }}
+        .badge:hover {{
+            transform: scale(1.1);
+        }}
+        .footer-badges {{
+            text-align: center;
+            margin: 20px auto;  /* Adjusted margin */
+            width: 100%;
+        }}
+        .footer-badge {{
+            display: inline-block;
+            width: 60px;  /* Increased from 45px to 60px */
+            height: auto;
+            margin: 0 10px;
+            vertical-align: middle;
         }}
         h2 {{
             color: #2c3e50;
             border-bottom: 2px solid #5D3FD3;
             padding-bottom: 8px;
-            margin-top: 30px;
+            margin: 20px auto;  /* Adjusted margin */
             font-size: 1.6em;
+            text-align: center;
+            max-width: 80%;
+        }}
+        .date {{
+            color: #666;
+            text-align: center;
+            margin: 15px 0;
         }}
         .article {{
             background-color: #fff;
@@ -378,47 +420,30 @@ def send_bullet_points_email(global_articles_data, australian_articles_data):
             margin-bottom: 20px;
             border-radius: 5px;
             border-left: 4px solid #5D3FD3;
+            text-align: left;  /* Ensure article content is left-aligned */
         }}
-        h4 {{
+        .article h4 {{
             margin: 0 0 15px 0;
             color: #2c3e50;
             font-size: 1.2em;
+            text-align: left;  /* Left-align article titles */
         }}
         ul {{
             margin: 15px 0;
             padding-left: 25px;
+            text-align: left;  /* Ensure bullet points are left-aligned */
         }}
         li {{
             margin-bottom: 8px;
             line-height: 1.5;
+            text-align: left;  /* Ensure list items are left-aligned */
         }}
         .read-more {{
             margin-top: 15px;
+            text-align: left;  /* Left-align read more links */
         }}
-        .read-more a {{
-            color: #5D3FD3;
-            text-decoration: none;
-            font-weight: 500;
-        }}
-        .read-more a:hover {{
-            text-decoration: underline;
-            color: #4B0082;
-        }}
-        .footer {{
-            text-align: center;
-            padding: 20px;
-            color: #666;
-            font-size: 0.9em;
-            border-top: 1px solid #eee;
-            margin-top: 30px;
-        }}
-        .header-link {{
-            display: block;
-            text-decoration: none;
-            margin-bottom: 10px;
-        }}
-        .header-link:hover img {{
-            opacity: 0.9;
+        .article-section {{
+            text-align: left;  /* Ensure article sections are left-aligned */
         }}
         .footer-links {{
             margin-top: 20px;
@@ -447,24 +472,33 @@ def send_bullet_points_email(global_articles_data, australian_articles_data):
             <a href="https://www.responsibleaiaustralia.com.au/" class="header-link" target="_blank">
                 <img src="cid:logo" alt="Logo" class="logo">
             </a>
-            <h2 style="margin-top: 0;">Daily AI News Summary</h2>
-            <p style="color: #666;">{et_now.strftime('%B %d, %Y')} (ET)</p>
+            <div class="badges-row">
+                <img src="cid:bronzeBadge" alt="Bronze Badge" class="badge">
+                <img src="cid:goldBadge" alt="Gold Badge" class="badge gold">
+                <img src="cid:silverBadge" alt="Silver Badge" class="badge">
+            </div>
+            <h2>Daily AI News Summary</h2>
+            <p class="date">{et_now.strftime('%B %d, %Y')} (ET)</p>
         </div>
 
-        <h2>Global AI Updates</h2>
-        <div class="article-section">
-            {global_html}
-        </div>
+    <h2>Global AI Updates</h2>
+    <div class="article-section">
+        {global_html}
+    </div>
 
-        <h2>Australian AI Updates</h2>
-        <div class="article-section">
-            {australian_html}
-        </div>
+    <h2>Australian AI Updates</h2>
+    <div class="article-section">
+        {australian_html}
+    </div>
 
         <div class="footer">
-            <p>Generated summaries based on recent AI news.</p>
+            <div class="footer-badges">
+                <img src="cid:bronzeBadge" alt="Bronze Badge" class="footer-badge">
+                <img src="cid:goldBadge" alt="Gold Badge" class="footer-badge">
+                <img src="cid:silverBadge" alt="Silver Badge" class="footer-badge">
+            </div>
             <div class="footer-links">
-                <a href="https://www.responsibleaiaustralia.com.au/" target="_blank">Visit Responsble.ai</a>
+                <a href="https://www.responsibleaiaustralia.com.au/" target="_blank">Visit Responsible AI Australia</a>
                 <span class="divider">|</span>
                 <a href="https://www.responsibleaiaustralia.com.au/contact" target="_blank">Contact Us</a>
             </div>
@@ -484,6 +518,15 @@ def send_bullet_points_email(global_articles_data, australian_articles_data):
             img.add_header('Content-Disposition', 'inline', filename='image001.png')
             msg.attach(img)
 
+        # Add badge images
+        badge_files = ['goldBadge', 'silverBadge', 'bronzeBadge']
+        for badge in badge_files:
+            with open(f'assets/badges/{badge}.png', 'rb') as f:
+                img = MIMEImage(f.read())
+                img.add_header('Content-ID', f'<{badge}>')
+                img.add_header('Content-Disposition', 'inline', filename=f'{badge}.png')
+                msg.attach(img)
+
         print("Connecting to SMTP server for bullet points email...")
         server = smtplib.SMTP_SSL('mail.inventico.io', 465)
         print("Logging in...")
@@ -498,65 +541,26 @@ def send_bullet_points_email(global_articles_data, australian_articles_data):
         raise
 
 
-def send_linkedin_email(global_posts_list, australian_posts_list):
-    """Sends the LinkedIn posts as a plain text email."""
-    # Use the specific recipient list for LinkedIn posts
-    if not RECIPIENT_EMAILS_LINKEDIN or not any(RECIPIENT_EMAILS_LINKEDIN):
-        print("Error: No recipient emails configured for LinkedIn posts (RECIPIENT_EMAIL_LINKEDIN).")
-        return # Or raise an error
-
-    try:
-        # Combine posts with separators
-        global_combined = "\n\n-------------------\n\n".join(global_posts_list)
-        australian_combined = "\n\n-------------------\n\n".join(australian_posts_list) # Corrected variable name
-
-        print(f"Preparing LinkedIn posts email via BCC to {len(RECIPIENT_EMAILS_LINKEDIN)} recipients.")
-        msg = MIMEMultipart()
-        msg['From'] = SENDER_EMAIL
-        msg['To'] = SENDER_EMAIL # For BCC
-        et_tz = pytz.timezone('US/Eastern')
-        # Use current ET date for subject as posts relate to 'today' in ET perspective
-        et_now = datetime.now(et_tz)
-        msg['Subject'] = f"Your Daily LinkedIn AI Posts - Global & Australian Updates - {et_now.strftime('%Y-%m-%d')} (ET)"
-
-        body = f"""
-Here are your AI-generated LinkedIn posts for today:
-
-GLOBAL AI UPDATES:
-{global_combined if global_combined else "No global posts generated."}
-
-==========================================
-
-AUSTRALIAN AI UPDATES:
-{australian_combined if australian_combined else "No Australian posts generated."}
-
-Feel free to edit and customize before posting! You can choose to post these separately throughout the day or combine elements into a single post.
-"""
-        msg.attach(MIMEText(body, 'plain')) # Plain text email
-
-        print("Connecting to SMTP server for LinkedIn posts email...")
-        server = smtplib.SMTP_SSL('mail.inventico.io', 465)
-        print("Logging in...")
-        server.login(SENDER_EMAIL, SENDER_PASSWORD)
-        print("Sending LinkedIn posts email...")
-        server.sendmail(SENDER_EMAIL, RECIPIENT_EMAILS_LINKEDIN, msg.as_string())
-        print("Closing connection...")
-        server.quit()
-        print("LinkedIn posts email sent successfully!")
-    except Exception as e:
-        print(f"Error sending LinkedIn posts email: {str(e)}")
-        raise
+def is_weekend_et():
+    """Check if current US/Eastern time is a weekend."""
+    et_tz = pytz.timezone('US/Eastern')
+    et_now = datetime.now(et_tz)
+    # 5 = Saturday, 6 = Sunday
+    return et_now.weekday() in [5, 6]
 
 
 def main():
     """Main function to fetch news, generate content, and send emails."""
     try:
         print("Starting main process...")
+        
+        # Check if it's weekend in ET
+        if is_weekend_et():
+            print("Weekend detected in ET timezone. Skipping news updates.")
+            return
 
-        # Lists to hold generated content
-        global_linkedin_posts = []
+        # Lists to hold generated content (removed LinkedIn-related lists)
         global_bullet_points = []
-        aus_linkedin_posts = []
         aus_bullet_points = []
 
         # Get global articles
@@ -566,23 +570,15 @@ def main():
         if not global_articles:
             print("No global articles found for today.")
         else:
-            print("\nGenerating global content (LinkedIn posts and bullet points)...") # Updated print
+            print("\nGenerating global content...")
             num_global_articles = min(len(global_articles), 3)
             for i in range(num_global_articles):
                 article = global_articles[i]
-                # Generate LinkedIn post
-                try:
-                    linkedin_post = generate_linkedin_post(article, is_australian=False)
-                    global_linkedin_posts.append(linkedin_post) # Store the formatted string
-                except Exception as e:
-                    print(f"Failed to generate LinkedIn post for global article '{article.get('title', 'N/A')}': {e}")
-                # Generate bullet points
                 try:
                     bullets, url = generate_bullet_points(article, is_australian=False)
-                    global_bullet_points.append({'summary': bullets, 'url': url, 'title': article['title']}) # Store dict for HTML email
+                    global_bullet_points.append({'summary': bullets, 'url': url, 'title': article['title']})
                 except Exception as e:
                     print(f"Failed to generate bullet points for global article '{article.get('title', 'N/A')}': {e}")
-
 
         # Get Australian articles
         print("\nFetching Australian articles...")
@@ -591,27 +587,18 @@ def main():
         if not australian_articles:
             print("No Australian articles found.")
         else:
-            print("\nGenerating Australian content (LinkedIn posts and bullet points)...") # Updated print
+            print("\nGenerating Australian content...")
             num_aus_articles = min(len(australian_articles), 3)
             for i in range(num_aus_articles):
                 article = australian_articles[i]
-                 # Generate LinkedIn post
-                try:
-                    linkedin_post = generate_linkedin_post(article, is_australian=True)
-                    aus_linkedin_posts.append(linkedin_post) # Store the formatted string
-                except Exception as e:
-                    print(f"Failed to generate LinkedIn post for Australian article '{article.get('title', 'N/A')}': {e}")
-               # Generate bullet points
                 try:
                     bullets, url = generate_bullet_points(article, is_australian=True)
-                    aus_bullet_points.append({'summary': bullets, 'url': url, 'title': article['title']}) # Store dict for HTML email
+                    aus_bullet_points.append({'summary': bullets, 'url': url, 'title': article['title']})
                 except Exception as e:
                     print(f"Failed to generate bullet points for Australian article '{article.get('title', 'N/A')}': {e}")
 
-
-        # --- Email Sending Section ---
         # Send bullet points email (HTML)
-        if RECIPIENT_EMAILS_BULLETS: # Check if list is configured
+        if RECIPIENT_EMAILS_BULLETS:
              if global_bullet_points or aus_bullet_points:
                  print("\nSending bullet points email...")
                  try:
@@ -622,20 +609,6 @@ def main():
                  print("\nNo bullet point content generated to send.")
         else:
              print("\nSkipping bullet points email: No recipients configured (RECIPIENT_EMAIL_BULLETS).")
-
-        # Send LinkedIn posts email (Plain Text)
-        if RECIPIENT_EMAILS_LINKEDIN: # Check if list is configured
-            if global_linkedin_posts or aus_linkedin_posts:
-                 print("\nSending LinkedIn posts email...")
-                 try:
-                     send_linkedin_email(global_linkedin_posts, aus_linkedin_posts)
-                 except Exception as e:
-                     print(f"Failed to send LinkedIn posts email: {e}")
-            else:
-                 print("\nNo LinkedIn post content generated to send.")
-        else:
-             print("\nSkipping LinkedIn posts email: No recipients configured (RECIPIENT_EMAIL_LINKEDIN).")
-
 
         print("\nProcess completed successfully!")
 
