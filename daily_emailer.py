@@ -33,24 +33,6 @@ SENDER_PASSWORD = os.getenv('SENDER_PASSWORD')
 RECIPIENT_EMAILS_BULLETS = [email.strip() for email in os.getenv('RECIPIENT_EMAIL_BULLETS', '').split(',') if email.strip()]
 NEWS_API_KEY = os.getenv('NEWS_API_KEY') # Added News API Key loading
 
-def load_sent_articles():
-    """Load previously sent articles from cache file."""
-    cache_file = Path('sent_articles_cache.json')
-    if cache_file.exists():
-        try:
-            with open(cache_file, 'r') as f:
-                cache = json.load(f)
-                # Remove entries older than 30 days
-                now = datetime.now()
-                cache = {
-                    url: date for url, date in cache.items()
-                    if datetime.strptime(date, '%Y-%m-%d') > (now - timedelta(days=30))
-                }
-                return cache
-        except Exception as e:
-            print(f"Error loading cache: {e}")
-    return {}
-
 def save_sent_articles(cache):
     """Save sent articles to cache file."""
     cache_file = Path('sent_articles_cache.json')
@@ -368,7 +350,10 @@ def format_articles_html(articles_list, section_type=""):
         weekday = et_now.weekday()
         
         if is_weekend_et():
-            message = "No updates available on weekends."
+            if section_type == "Global":
+                message = "No global AI updates available on weekends."
+            else:
+                message = "No Australian AI updates available on weekends."
         elif section_type == "Australian" and weekday == 0:
             message = "No Australian AI news found for the weekend period."
         elif section_type == "Australian":
@@ -423,23 +408,21 @@ def send_bullet_points_email(global_articles_data, australian_articles_data):
     try:
         print(f"Preparing bullet points email via BCC to {len(RECIPIENT_EMAILS_BULLETS)} recipients.")
         msg = MIMEMultipart()
-        msg['From'] = formataddr(("Responsible AI Australia", os.getenv('EMAIL_SENDER')))
+        msg['From'] = formataddr(("Responsible AI Australia", SENDER_EMAIL))
         msg['To'] = ", ".join(RECIPIENT_EMAILS_BULLETS)
+        
+        # Get current time in both ET and AET
         et_tz = pytz.timezone('US/Eastern')
+        aet_tz = pytz.timezone('Australia/Sydney')
         et_now = datetime.now(et_tz)
+        aet_now = datetime.now(aet_tz)
+        
+        # Use AET for display, but keep ET in subject for reference
         msg['Subject'] = f"Daily AI News Summary - {et_now.strftime('%Y-%m-%d')} (ET)"
-
+        
         # Format articles with section type for appropriate messaging
         global_html = format_articles_html(global_articles_data, "Global")
         australian_html = format_articles_html(australian_articles_data, "Australian")
-
-        # Only send email if we have content or it's a regular weekday
-        if is_weekend_et():
-            print("Weekend detected. Skipping email send.")
-            return
-
-        if not global_articles_data and not australian_articles_data:
-            print("No articles found for either section. Sending email with 'no updates' messages.")
 
         # HTML Body with improved styling and logo
         body = f"""
@@ -464,7 +447,7 @@ def send_bullet_points_email(global_articles_data, australian_articles_data):
             padding: 20px;
             background-color: #ffffff;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            text-align: center;  /* Center all content by default */
+            text-align: center;
         }}
         .header {{
             text-align: center;
@@ -476,7 +459,7 @@ def send_bullet_points_email(global_articles_data, australian_articles_data):
             display: block;
             max-width: 180px;
             height: auto;
-            margin: 0 auto 15px;  /* Reduced bottom margin from 25px to 15px */
+            margin: 0 auto 15px;
         }}
         .badges-row {{
             display: inline-block;
@@ -493,20 +476,20 @@ def send_bullet_points_email(global_articles_data, australian_articles_data):
             transition: transform 0.2s;
         }}
         .badge.gold {{
-            width: 100px;  /* Larger size for gold badge */
-            margin: 0 20px;  /* Slightly more margin for gold badge */
+            width: 100px;
+            margin: 0 20px;
         }}
         .badge:hover {{
             transform: scale(1.1);
         }}
         .footer-badges {{
             text-align: center;
-            margin: 20px auto;  /* Adjusted margin */
+            margin: 20px auto;
             width: 100%;
         }}
         .footer-badge {{
             display: inline-block;
-            width: 60px;  /* Increased from 45px to 60px */
+            width: 60px;
             height: auto;
             margin: 0 10px;
             vertical-align: middle;
@@ -515,7 +498,7 @@ def send_bullet_points_email(global_articles_data, australian_articles_data):
             color: #2c3e50;
             border-bottom: 2px solid #5D3FD3;
             padding-bottom: 8px;
-            margin: 20px auto;  /* Adjusted margin */
+            margin: 20px auto;
             font-size: 1.6em;
             text-align: center;
             max-width: 80%;
@@ -531,30 +514,30 @@ def send_bullet_points_email(global_articles_data, australian_articles_data):
             margin-bottom: 20px;
             border-radius: 5px;
             border-left: 4px solid #5D3FD3;
-            color: #333;  /* Default text color */
+            color: #333;
         }}
         .article h4 {{
             margin: 0 0 15px 0;
             color: #2c3e50;
             font-size: 1.2em;
-            text-align: left;  /* Left-align article titles */
+            text-align: left;
         }}
         ul {{
             margin: 15px 0;
             padding-left: 25px;
-            color: #333;  /* Consistent color for lists */
+            color: #333;
         }}
         li {{
             margin-bottom: 8px;
             line-height: 1.5;
-            color: #333;  /* Consistent color for list items */
+            color: #333;
         }}
         .read-more {{
             margin-top: 15px;
-            text-align: left;  /* Left-align read more links */
+            text-align: left;
         }}
         .article-section {{
-            text-align: left;  /* Ensure article sections are left-aligned */
+            text-align: left;
         }}
         .footer-links {{
             margin-top: 20px;
@@ -588,33 +571,22 @@ def send_bullet_points_email(global_articles_data, australian_articles_data):
             margin: 30px 0 10px 0;
             text-align: center;
         }}
-        
         .header-date {{
             color: #666;
             text-align: center;
             margin: 0 0 40px 0;
             font-size: 1.1em;
         }}
-        
         .section-title {{
             color: #2c3e50;
             font-size: 1.6em;
             margin: 40px 0 20px 0;
             padding-bottom: 10px;
             border-bottom: 2px solid #5D3FD3;
-            text-align: center;  /* Center align the section titles */
-            width: 80%;  /* Limit the width so the border isn't full width */
-            margin-left: auto;  /* Center the element itself */
-            margin-right: auto;  /* Center the element itself */
-        }}
-        
-        /* Remove any other border/line styles that might interfere */
-        .container {{
-            border: none;
-        }}
-        
-        .header {{
-            border-bottom: none;
+            text-align: center;
+            width: 80%;
+            margin-left: auto;
+            margin-right: auto;
         }}
     </style>
 </head>
@@ -630,18 +602,18 @@ def send_bullet_points_email(global_articles_data, australian_articles_data):
                 <img src="cid:silverBadge" alt="Silver Badge" class="badge">
             </div>
             <h1 class="header-title">Daily AI News Summary</h1>
-            <p class="header-date">{et_now.strftime('%B %d, %Y')} (ET)</p>
+            <p class="header-date">{aet_now.strftime('%B %d, %Y')} (AET)</p>
         </div>
 
         <h2 class="section-title">Global AI Updates</h2>
-    <div class="article-section">
-        {global_html}
-    </div>
+        <div class="article-section">
+            {global_html}
+        </div>
 
         <h2 class="section-title">Australian AI Updates</h2>
-    <div class="article-section">
-        {australian_html}
-    </div>
+        <div class="article-section">
+            {australian_html}
+        </div>
 
         <div class="footer">
             <div class="footer-badges">
@@ -698,10 +670,6 @@ def main():
     try:
         print("Starting main process...")
         
-        if is_weekend_et():
-            print("Weekend detected in ET timezone. Skipping news updates.")
-            return
-
         # Lists to hold generated content
         global_bullet_points = []
         aus_bullet_points = []
@@ -746,13 +714,13 @@ def main():
 
         # Send bullet points email (HTML)
         if RECIPIENT_EMAILS_BULLETS:
-                 print("\nSending bullet points email...")
-                 try:
-                     send_bullet_points_email(global_bullet_points, aus_bullet_points)
-                 except Exception as e:
-                     print(f"Failed to send bullet points email: {e}")
+            print("\nSending bullet points email...")
+            try:
+                send_bullet_points_email(global_bullet_points, aus_bullet_points)
+            except Exception as e:
+                print(f"Failed to send bullet points email: {e}")
         else:
-             print("\nSkipping bullet points email: No recipients configured (RECIPIENT_EMAIL_BULLETS).")
+            print("\nSkipping bullet points email: No recipients configured (RECIPIENT_EMAIL_BULLETS).")
 
         print("\nProcess completed successfully!")
 
