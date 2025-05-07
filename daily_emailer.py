@@ -50,20 +50,25 @@ def is_weekend_et():
     return et_now.weekday() in [5, 6]
 
 def get_date_range_et():
-    """Get appropriate date range based on current day in ET."""
-    et_tz = pytz.timezone('US/Eastern')
-    et_now = datetime.now(et_tz)
-    weekday = et_now.weekday()  # 0 = Monday, 1 = Tuesday, etc.
+    """Get appropriate date range based on current day in AET."""
+    # Use Australian Eastern Time for day determination
+    aet_tz = pytz.timezone('Australia/Sydney')
+    aet_now = datetime.now(aet_tz)
+    weekday = aet_now.weekday()  # 0 = Monday, 1 = Tuesday, etc.
     
-    to_date = et_now
+    to_date = aet_now
     if weekday == 0:  # If Monday
-        # Look back 72 hours to cover the weekend
-        from_date = et_now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=3)
-        print("Monday detected - fetching news from the past 72 hours")
+        # Look back to Friday (3 days)
+        from_date = aet_now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=3)
+        print("Monday detected - fetching news from Friday through Monday")
+    elif weekday == 3:  # If Thursday
+        # Look back to Tuesday (2 days)
+        from_date = aet_now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=2)
+        print("Thursday detected - fetching news from Tuesday through Thursday")
     else:
-        # Regular 24-hour window
-        from_date = et_now.replace(hour=0, minute=0, second=0, microsecond=0)
-        print("Regular day - fetching news from the past 24 hours")
+        # Regular 24-hour window for other days
+        from_date = aet_now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=3)
+        print(f"Regular day ({aet_now.strftime('%A')}) - fetching news from the past 24 hours")
     
     return from_date, to_date
 
@@ -84,23 +89,129 @@ def get_australian_ai_news():
 
         print(f"Searching for news from {from_param} to {to_param}")
 
+        # List of known Australian news sources
+        australian_sources = {
+            'abc.net.au', 'news.com.au', 'smh.com.au', 'theage.com.au', 
+            'afr.com', 'theaustralian.com.au', 'crikey.com.au', '7news.com.au',
+            '9news.com.au', 'theguardian.com.au', 'sbs.com.au', 'theconversation.com',
+            'afr.com.au', 'brisbanetimes.com.au', 'watoday.com.au', 'canberratimes.com.au',
+            'ntnews.com.au', 'adelaidenow.com.au', 'perthnow.com.au', 'dailytelegraph.com.au',
+            'heraldsun.com.au', 'couriermail.com.au', 'themercury.com.au', 'theadvocate.com.au'
+        }
+
         # Broader search queries to cast a wider net
         queries = [
-            '("artificial intelligence" OR "AI") AND (Australia OR Australian)',
-            'machine learning AND (Australia OR Australian)',
-            '(chatbot OR "language model" OR LLM) AND (Australia OR Australian)',
-            '("deep learning" OR "neural network") AND (Australia OR Australian)',
-            'AI startup AND (Australia OR Australian)',
-            '(AI policy OR "AI regulation") AND (Australia OR Australian)'
+            '("artificial intelligence" OR "AI") AND (Australia OR Australian OR Sydney OR Melbourne OR Brisbane)',
+            'machine learning AND (Australia OR Australian OR Sydney OR Melbourne OR Brisbane)',
+            '(chatbot OR "language model" OR LLM) AND (Australia OR Australian OR Sydney OR Melbourne OR Brisbane)',
+            '("deep learning" OR "neural network") AND (Australia OR Australian OR Sydney OR Melbourne OR Brisbane)',
+            'AI startup AND (Australia OR Australian OR Sydney OR Melbourne OR Brisbane)',
+            '(AI policy OR "AI regulation") AND (Australia OR Australian OR Sydney OR Melbourne OR Brisbane)',
+            '(deepfake OR "AI abuse" OR "AI misuse") AND (Australia OR Australian OR Sydney OR Melbourne OR Brisbane)',
+            '(AI education OR "AI training") AND (Australia OR Australian OR Sydney OR Melbourne OR Brisbane)'
         ]
 
-        # AI-related keywords for relevance checking
+        # Comprehensive AI-related keywords
         ai_keywords = [
+            # Core AI terms
             'artificial intelligence', 'ai ', 'machine learning', 'deep learning',
-            'neural network', 'chatbot', 'language model', 'llm', 'ml ', 
+            'neural network', 'chatbot', 'language model', 'llm', 'ml ',
             'computer vision', 'nlp ', 'natural language processing',
+            
+            # AI applications and technologies
             'ai-powered', 'ai powered', 'ai-based', 'ai based',
-            'automation', 'robotics', 'algorithm'
+            'automation', 'robotics', 'algorithm', 'data science',
+            'predictive analytics', 'ai ethics', 'ai governance',
+            'deepfake', 'ai safety', 'ai security', 'ai risk',
+            'ai threat', 'ai misuse', 'ai abuse', 'ai fraud',
+            'generative ai', 'genai', 'ai model', 'ai system',
+            'chatgpt', 'gpt-', 'claude', 'gemini', 'copilot',
+            'ai assistant', 'ai tool', 'ai platform',
+            
+            # AI in specific domains
+            'ai healthcare', 'ai medicine', 'ai diagnosis',
+            'ai education', 'ai learning', 'ai teaching',
+            'ai finance', 'ai banking', 'ai trading',
+            'ai defense', 'ai military', 'ai security',
+            'ai transport', 'ai autonomous', 'self-driving',
+            'ai agriculture', 'ai farming', 'ai crop',
+            'ai mining', 'ai resources', 'ai exploration',
+            
+            # AI research and development
+            'ai research', 'ai development', 'ai innovation',
+            'ai startup', 'ai company', 'ai business',
+            'ai investment', 'ai funding', 'ai venture',
+            'ai patent', 'ai invention', 'ai breakthrough',
+            
+            # AI policy and regulation
+            'ai policy', 'ai regulation', 'ai governance',
+            'ai ethics', 'ai bias', 'ai fairness',
+            'ai privacy', 'ai data', 'ai security',
+            'ai standards', 'ai compliance', 'ai framework',
+            
+            # AI impact and society
+            'ai impact', 'ai society', 'ai social',
+            'ai future', 'ai workforce', 'ai jobs',
+            'ai economy', 'ai industry', 'ai market',
+            'ai culture', 'ai art', 'ai creativity'
+        ]
+
+        # Comprehensive Australian relevance terms
+        australian_terms = [
+            # Country and national terms
+            'australia', 'australian', 'aussie', 'straya',
+            'australian government', 'australian federal',
+            'australian state', 'australian territory',
+            
+            # Major cities
+            'sydney', 'melbourne', 'brisbane', 'perth', 'adelaide',
+            'canberra', 'hobart', 'darwin', 'gold coast',
+            'newcastle', 'wollongong', 'geelong', 'townsville',
+            'cairns', 'toowoomba', 'ballarat', 'bendigo',
+            
+            # States and territories
+            'nsw', 'new south wales', 'victoria', 'vic',
+            'queensland', 'qld', 'western australia', 'wa',
+            'south australia', 'sa', 'tasmania', 'tas',
+            'northern territory', 'nt', 'act', 'australian capital territory',
+            
+            # Regions and areas
+            'outback', 'bush', 'the bush', 'regional australia',
+            'northern australia', 'southern australia',
+            'eastern australia', 'western australia',
+            'central australia', 'remote australia',
+            
+            # Government and institutions
+            'parliament house', 'canberra', 'federal parliament',
+            'state parliament', 'local council', 'australian senate',
+            'house of representatives', 'australian court',
+            'high court', 'federal court',
+            
+            # Major organizations
+            'csiro', 'csiro australia', 'australian research council',
+            'australian universities', 'australian institute',
+            'australian bureau', 'australian commission',
+            
+            # Cultural and social terms
+            'australian culture', 'australian society',
+            'australian community', 'australian public',
+            'australian people', 'australian citizens',
+            
+            # Business and economy
+            'australian business', 'australian company',
+            'australian industry', 'australian market',
+            'australian economy', 'australian trade',
+            'australian export', 'australian import',
+            
+            # Education and research
+            'australian university', 'australian school',
+            'australian education', 'australian research',
+            'australian science', 'australian technology',
+            
+            # Media and communication
+            'australian media', 'australian press',
+            'australian news', 'australian broadcast',
+            'australian radio', 'australian television'
         ]
 
         all_articles = []
@@ -109,11 +220,11 @@ def get_australian_ai_news():
             try:
                 response = newsapi.get_everything(
                     q=query,
-                                              from_param=from_param,
-                                              to=to_param,
-                                              language='en',
+                    from_param=from_param,
+                    to=to_param,
+                    language='en',
                     sort_by='publishedAt',
-                    page_size=30
+                    page_size=50  # Increased from 30 to 50 to get more results
                 )
                 
                 if response['status'] == 'ok':
@@ -132,13 +243,17 @@ def get_australian_ai_news():
                 print(f"Error processing query '{query}': {str(e)}")
                 continue
 
-        # Deduplicate articles based on URL
+        # Deduplicate articles based on URL and title
         seen_urls = set()
+        seen_titles = set()
         unique_articles = []
         for article in all_articles:
             url = article.get('url', '')
-            if url and url not in seen_urls:
+            title = article.get('title', '').lower()
+            # Check both URL and title to avoid duplicates
+            if url and url not in seen_urls and title not in seen_titles:
                 seen_urls.add(url)
+                seen_titles.add(title)
                 unique_articles.append(article)
 
         print(f"Total unique articles found for the period: {len(unique_articles)}")
@@ -152,67 +267,92 @@ def get_australian_ai_news():
             source_name = article.get('source', {}).get('name', '').lower()
             url = article.get('url', '').lower()
 
-            # Check for Australian relevance
-            is_australian = any([
-                re.search(r'\b(australia|australian)\b', title),
-                re.search(r'\b(australia|australian)\b', description),
-                re.search(r'\b(australia|australian)\b', source_name),
+            # Check for Australian relevance - more strict approach
+            australian_score = 0
+            # Must have at least one strong Australian connection
+            if any([
+                # Strong Australian connections (weight: 2)
+                any(term in title for term in ['australia', 'australian', 'aussie']),
+                source_name in australian_sources,
                 '.au' in url
-            ])
+            ]):
+                australian_score += 2
+            # Additional Australian context (weight: 1)
+            if any([
+                any(city in title or city in description for city in ['sydney', 'melbourne', 'brisbane', 'perth', 'adelaide', 'canberra', 'hobart', 'darwin']),
+                any(term in description for term in australian_terms)
+            ]):
+                australian_score += 1
 
-            # Check for AI relevance (more strict)
-            ai_relevance_score = sum(
-                2 if keyword in title else  # Higher weight for title matches
-                1 if keyword in description or keyword in content else
+            # Check for AI relevance - more strict approach
+            ai_relevance_score = 0
+            # Must have at least one strong AI connection
+            if any([
+                # Strong AI connections (weight: 2)
+                any(term in title for term in ['artificial intelligence', 'ai ', 'machine learning', 'deep learning', 'neural network', 'deepfake']),
+                any(term in title for term in ['chatgpt', 'gpt-', 'claude', 'gemini', 'copilot'])
+            ]):
+                ai_relevance_score += 2
+            # Additional AI context (weight: 1)
+            ai_relevance_score += sum(
+                1 if keyword in title else
+                0.5 if keyword in description or keyword in content else
                 0
                 for keyword in ai_keywords
             )
 
-            # Additional context check
+            # Additional context check - more strict
             def has_strong_ai_context(text):
+                # Must have at least one strong AI term
+                strong_ai_terms = [
+                    'artificial intelligence', 'machine learning', 'deep learning',
+                    'ai technology', 'ai development', 'ai research', 'deepfake',
+                    'ai abuse', 'ai misuse', 'ai education', 'ai training',
+                    'chatgpt', 'gpt-', 'claude', 'gemini', 'copilot'
+                ]
+                has_strong_term = any(term in text for term in strong_ai_terms)
+                
                 # Count occurrences of AI-related terms
                 ai_term_count = sum(text.count(keyword) for keyword in ai_keywords)
-                # Check if AI terms appear in the first 100 characters
-                ai_in_beginning = any(keyword in text[:100] for keyword in ai_keywords)
-                # Check for specific phrases that indicate AI focus
-                ai_focus_phrases = [
-                    'artificial intelligence', 'machine learning', 'deep learning',
-                    'ai technology', 'ai development', 'ai research'
-                ]
-                has_focus_phrase = any(phrase in text for phrase in ai_focus_phrases)
-                return (ai_term_count >= 2 and (ai_in_beginning or has_focus_phrase))
+                
+                # Check if AI terms appear in the first 200 characters
+                ai_in_beginning = any(keyword in text[:200] for keyword in strong_ai_terms)
+                
+                return has_strong_term and (ai_term_count >= 2 or ai_in_beginning)
 
             has_context = has_strong_ai_context(title + ' ' + description + ' ' + content)
 
-            if is_australian and ai_relevance_score >= 2 and has_context:
+            # More strict relevance criteria
+            if australian_score >= 2 and ai_relevance_score >= 2 and has_context:
                 filtered_articles.append({
                     'title': article.get('title', ''),
-                        'summary': description if description else 'No description available.',
-                        'content': content,
+                    'summary': description if description else 'No description available.',
+                    'content': content,
                     'url': article.get('url', ''),
                     'publishedAt': article.get('publishedAt', ''),
-                    'relevance_score': ai_relevance_score
-                    })
+                    'relevance_score': ai_relevance_score + australian_score  # Combined score
+                })
                 print(f"Added (Relevant): {article.get('title', '')}")
                 print(f"Source: {source_name}")
                 print(f"AI relevance score: {ai_relevance_score}")
+                print(f"Australian relevance score: {australian_score}")
                 print(f"Published at: {article.get('publishedAt', '')}")
             else:
                 print(f"Skipped: {article.get('title', '')}")
-                print(f"Reason: {'Not Australian' if not is_australian else ''} "
+                print(f"Reason: {'Low Australian relevance' if australian_score < 2 else ''} "
                       f"{'Low AI relevance' if ai_relevance_score < 2 else ''} "
                       f"{'Weak AI context' if not has_context else ''}")
 
         print(f"Total relevant articles found for the period: {len(filtered_articles)}")
         
-        # Sort by publication date (most recent first) and then relevance score
+        # Sort by combined relevance score (AI + Australian) and then by date
         filtered_articles.sort(key=lambda x: (
-            datetime.strptime(x.get('publishedAt', '2000-01-01'), '%Y-%m-%dT%H:%M:%SZ'),
-            x['relevance_score']
+            x['relevance_score'],
+            datetime.strptime(x.get('publishedAt', '2000-01-01'), '%Y-%m-%dT%H:%M:%SZ')
         ), reverse=True)
         
-        # Return up to 3 most recent, relevant articles
-        return filtered_articles[:3]
+        # Return all relevant articles
+        return filtered_articles
 
     except Exception as e:
         print(f"Error in get_australian_ai_news: {str(e)}")
@@ -703,7 +843,7 @@ def main():
 
         if australian_articles:
             print("\nGenerating Australian content...")
-            num_aus_articles = min(len(australian_articles), 3)
+            num_aus_articles = len(australian_articles)
             for i in range(num_aus_articles):
                 article = australian_articles[i]
                 try:
