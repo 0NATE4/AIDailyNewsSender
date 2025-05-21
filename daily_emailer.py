@@ -67,6 +67,17 @@ def get_date_range_et():
     
     return from_date, to_date
 
+def get_australian_date_range():
+    """Get weekly date range for Australian news (last 7 days)."""
+    et_tz = pytz.timezone('US/Eastern')
+    et_now = datetime.now(et_tz)
+    
+    to_date = et_now
+    from_date = et_now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=7)
+    print("Fetching Australian news from the past 7 days")
+    
+    return from_date, to_date
+
 def get_australian_ai_news():
     """Fetches relevant Australian AI news using News API."""
     try:
@@ -77,8 +88,8 @@ def get_australian_ai_news():
 
         newsapi = NewsApiClient(api_key=NEWS_API_KEY)
 
-        # Get appropriate date range
-        from_date, to_date = get_date_range_et()
+        # Get weekly date range for Australian news
+        from_date, to_date = get_australian_date_range()
         from_param = from_date.strftime('%Y-%m-%d')
         to_param = to_date.strftime('%Y-%m-%d')
 
