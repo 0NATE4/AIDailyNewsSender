@@ -34,6 +34,9 @@ SENDER_PASSWORD = os.getenv('SENDER_PASSWORD')
 RECIPIENT_EMAILS_BULLETS = [email.strip() for email in os.getenv('RECIPIENT_EMAIL_BULLETS', '').split(',') if email.strip()]
 NEWS_API_KEY = os.getenv('NEWS_API_KEY') # Added News API Key loading
 
+SMTP_SERVER = os.getenv('SMTP_SERVER')
+SMTP_PORT = int(os.getenv('SMTP_PORT'))
+
 def save_sent_articles(cache):
     """Save sent articles to cache file."""
     cache_file = Path('sent_articles_cache.json')
@@ -761,7 +764,7 @@ def send_bullet_points_email(global_articles_data, australian_articles_data):
                 msg.attach(img)
 
         print("Connecting to SMTP server for bullet points email...")
-        server = smtplib.SMTP_SSL('mail.responsibleaiaustralia.com.au', 465)
+        server = smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT)
         print("Logging in...")
         server.login(SENDER_EMAIL, SENDER_PASSWORD)
         print("Sending bullet points email...")
