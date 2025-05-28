@@ -16,6 +16,7 @@ import html # Added for escaping HTML in email
 import json
 from pathlib import Path
 from email.utils import formataddr
+import time
 
 # Load environment variables
 load_dotenv()
@@ -95,64 +96,85 @@ def get_australian_ai_news():
 
         print(f"Searching for news from {from_param} to {to_param}")
 
-        # Broader search queries to cast a wider net
-        queries = [
-            '("artificial intelligence" OR "AI") AND (Australia OR Australian)',
-            'machine learning AND (Australia OR Australian)',
-            '(chatbot OR "language model" OR LLM) AND (Australia OR Australian)',
-            '("deep learning" OR "neural network") AND (Australia OR Australian)',
-            'AI startup AND (Australia OR Australian)',
-            '(AI policy OR "AI regulation") AND (Australia OR Australian)'
-        ]
-
-        # AI-related keywords for relevance checking
+        # AI-related keywords for relevance checking (broadened)
         ai_keywords = [
             'artificial intelligence', 'ai ', 'machine learning', 'deep learning',
-            'neural network', 'chatbot', 'language model', 'llm', 'ml ', 
+            'neural network', 'chatbot', 'language model', 'llm', 'ml ',
             'computer vision', 'nlp ', 'natural language processing',
             'ai-powered', 'ai powered', 'ai-based', 'ai based',
             'automation', 'robotics', 'algorithm'
         ]
 
-        all_articles = []
-        for query in queries:
-            print(f"Querying News API with: '{query}' for date range {from_param} to {to_param}")
-            try:
-                response = newsapi.get_everything(
-                    q=query,
-                                              from_param=from_param,
-                                              to=to_param,
-                                              language='en',
-                    sort_by='publishedAt',
-                    page_size=30
-                )
-                
-                if response['status'] == 'ok':
-                    # Filter articles by publishedAt date within our date range
-                    valid_articles = [
-                        article for article in response['articles']
-                        if article.get('publishedAt') and 
-                        from_date.date() <= datetime.strptime(article['publishedAt'][:10], '%Y-%m-%d').date() <= to_date.date()
-                    ]
-                    all_articles.extend(valid_articles)
-                    print(f"Found {len(valid_articles)} articles within date range from query: {query}")
-                else:
-                    print(f"Error in query '{query}': {response.get('message', 'Unknown error')}")
+        # Combined search query to reduce API calls
+        combined_query = '''
+            ("artificial intelligence" OR "AI" OR "machine learning" OR "deep learning" OR 
+            "neural network" OR "chatbot" OR "language model" OR "LLM" OR 
+            "AI startup" OR "AI policy" OR "AI regulation")
+            AND 
+            (Australia OR Australian OR Sydney OR Melbourne OR Brisbane OR Perth OR Adelaide)
+        '''
+
+        print(f"Querying News API with combined query for date range {from_param} to {to_param}")
+        try:
+            response = newsapi.get_everything(
+                q=combined_query,
+                from_param=from_param,
+                to=to_param,
+                language='en',
+                sort_by='publishedAt',
+                page_size=100  # Increased to get more results in one call
+            )
             
-            except Exception as e:
-                print(f"Error processing query '{query}': {str(e)}")
-                continue
+            if response['status'] == 'ok':
+                # Filter articles by publishedAt date within our date range
+                valid_articles = [
+                    article for article in response['articles']
+                    if article.get('publishedAt') and 
+                    from_date.date() <= datetime.strptime(article['publishedAt'][:10], '%Y-%m-%d').date() <= to_date.date()
+                ]
+                print(f"Found {len(valid_articles)} articles within date range")
+            else:
+                print(f"Error in query: {response.get('message', 'Unknown error')}")
+                return []
+        
+        except Exception as e:
+            print(f"Error processing query: {str(e)}")
+            return []
 
         # Deduplicate articles based on URL
         seen_urls = set()
         unique_articles = []
-        for article in all_articles:
+        for article in valid_articles:
             url = article.get('url', '')
             if url and url not in seen_urls:
                 seen_urls.add(url)
                 unique_articles.append(article)
 
         print(f"Total unique articles found for the period: {len(unique_articles)}")
+
+        # Whitelist of trusted Australian news domains
+        australian_sources = [
+            'abc.net.au', 'smh.com.au', 'theage.com.au', 'itnews.com.au',
+            'afr.com', 'news.com.au', 'drive.com.au', 'sbs.com.au', 'theguardian.com.au'
+        ]
+        aus_terms = ['australia', 'australian', 'sydney', 'melbourne', 'brisbane', 'perth', 'adelaide']
+        def is_australian(article):
+            url = article.get('url', '').lower()
+            source_name = article.get('source', {}).get('name', '').lower()
+            title = article.get('title', '').lower()
+            description = article.get('description', '').lower() if article.get('description') else ''
+            content = article.get('content', '').lower() if article.get('content') else ''
+            domain = urlparse(url).netloc
+            # .au domain or whitelisted source
+            if domain.endswith('.au') or any(src in domain for src in australian_sources):
+                return True
+            # Australia/cities in title/desc/content/source
+            if any(term in title for term in aus_terms) or \
+               any(term in description for term in aus_terms) or \
+               any(term in content for term in aus_terms) or \
+               any(term in source_name for term in aus_terms):
+                return True
+            return False
 
         # Enhanced relevance checking
         filtered_articles = []
@@ -163,13 +185,8 @@ def get_australian_ai_news():
             source_name = article.get('source', {}).get('name', '').lower()
             url = article.get('url', '').lower()
 
-            # Check for Australian relevance
-            is_australian = any([
-                re.search(r'\b(australia|australian)\b', title),
-                re.search(r'\b(australia|australian)\b', description),
-                re.search(r'\b(australia|australian)\b', source_name),
-                '.au' in url
-            ])
+            # Use improved Australian relevance
+            is_aus = is_australian(article)
 
             # Check for AI relevance (more strict)
             ai_relevance_score = sum(
@@ -181,11 +198,8 @@ def get_australian_ai_news():
 
             # Additional context check
             def has_strong_ai_context(text):
-                # Count occurrences of AI-related terms
                 ai_term_count = sum(text.count(keyword) for keyword in ai_keywords)
-                # Check if AI terms appear in the first 100 characters
                 ai_in_beginning = any(keyword in text[:100] for keyword in ai_keywords)
-                # Check for specific phrases that indicate AI focus
                 ai_focus_phrases = [
                     'artificial intelligence', 'machine learning', 'deep learning',
                     'ai technology', 'ai development', 'ai research'
@@ -195,22 +209,22 @@ def get_australian_ai_news():
 
             has_context = has_strong_ai_context(title + ' ' + description + ' ' + content)
 
-            if is_australian and ai_relevance_score >= 2 and has_context:
+            if is_aus and ai_relevance_score >= 2 and has_context:
                 filtered_articles.append({
                     'title': article.get('title', ''),
-                        'summary': description if description else 'No description available.',
-                        'content': content,
+                    'summary': description if description else 'No description available.',
+                    'content': content,
                     'url': article.get('url', ''),
                     'publishedAt': article.get('publishedAt', ''),
                     'relevance_score': ai_relevance_score
-                    })
+                })
                 print(f"Added (Relevant): {article.get('title', '')}")
                 print(f"Source: {source_name}")
                 print(f"AI relevance score: {ai_relevance_score}")
                 print(f"Published at: {article.get('publishedAt', '')}")
             else:
                 print(f"Skipped: {article.get('title', '')}")
-                print(f"Reason: {'Not Australian' if not is_australian else ''} "
+                print(f"Reason: {'Not Australian' if not is_aus else ''} "
                       f"{'Low AI relevance' if ai_relevance_score < 2 else ''} "
                       f"{'Weak AI context' if not has_context else ''}")
 
@@ -222,8 +236,7 @@ def get_australian_ai_news():
             x['relevance_score']
         ), reverse=True)
         
-        # Return up to 3 most recent, relevant articles
-        return filtered_articles[:3]
+        return filtered_articles
 
     except Exception as e:
         print(f"Error in get_australian_ai_news: {str(e)}")
@@ -231,75 +244,126 @@ def get_australian_ai_news():
 
 
 def get_tldr_articles():
-    """Fetches and scrapes TLDR AI articles from yesterday (US/ET)."""
+    """Fetches and scrapes TLDR AI articles from the past week (Monday-Friday only)."""
     try:
-        # Get date in US/Eastern Time
+        # Get date range in US/Eastern Time
         et_tz = pytz.timezone('US/Eastern')
-        et_today = datetime.now(et_tz)
-        date_str = et_today.strftime("%Y-%m-%d")
+        et_now = datetime.now(et_tz)
+        
+        # Calculate the date range (past 7 days)
+        end_date = et_now
+        start_date = et_now - timedelta(days=7)
+        
+        print(f"Fetching TLDR articles from {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
+        
+        all_articles = []
+        current_date = start_date
+        
+        # Iterate through each day in the range
+        while current_date <= end_date:
+            # Skip weekends (5 = Saturday, 6 = Sunday)
+            if current_date.weekday() >= 5:
+                print(f"Skipping weekend day: {current_date.strftime('%Y-%m-%d')}")
+                current_date += timedelta(days=1)
+                continue
+                
+            date_str = current_date.strftime("%Y-%m-%d")
+            url = f"https://tldr.tech/ai/{date_str}"
+            print(f"\nFetching articles from: {url}")
 
-        url = f"https://tldr.tech/ai/{date_str}"
-        print(f"Fetching articles from: {url}")
+            # Add a common browser User-Agent header
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
+            response = requests.get(url, headers=headers)
+            print(f"Response status code: {response.status_code}")
 
-        # Add a common browser User-Agent header
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
-        response = requests.get(url, headers=headers)
-        print(f"Response status code: {response.status_code}")
+            if response.status_code == 200:
+                soup = BeautifulSoup(response.text, 'html.parser')
+                sections = soup.find_all('h3')
+                print(f"Found {len(sections)} sections for {date_str}")
 
-        if response.status_code != 200:
-            print(f"Error: Received status code {response.status_code}")
-            return []
+                # Find the Headlines & Launches section
+                headlines_section = None
+                for section in sections:
+                    if section.text.strip() == "Headlines & Launches":
+                        headlines_section = section
+                        break
 
-        soup = BeautifulSoup(response.text, 'html.parser')
+                if headlines_section:
+                    print(f"Found Headlines & Launches section for {date_str}")
+                    # Get all h3 elements after Headlines & Launches until the next section
+                    current = headlines_section.find_next('h3')
+                    articles_for_day = 0
+                    
+                    while current and current.text.strip() != "Research & Innovation":
+                        title_text = current.text.strip()
+                        if '(' in title_text and ')' in title_text:
+                            # Split into title and reading time
+                            parts = title_text.rsplit('(', 1)
+                            title = parts[0].strip()
+                            
+                            # Find the anchor tag containing or related to the headline
+                            anchor_tag = current.find_parent('a')
+                            if not anchor_tag:
+                                print(f"Warning: No anchor tag found for article: {title}")
+                                current = current.find_next('h3')
+                                continue
+                                
+                            # Find the div.newsletter-html that is the immediate next sibling
+                            summary_div = anchor_tag.find_next_sibling('div', class_='newsletter-html')
+                            if not summary_div:
+                                print(f"Warning: No summary div found for article: {title}")
+                                current = current.find_next('h3')
+                                continue
+                                
+                            summary_text = summary_div.text.strip()
+                            if not summary_text:
+                                print(f"Warning: Empty summary for article: {title}")
+                                current = current.find_next('h3')
+                                continue
+                            
+                            # Get the URL and clean it
+                            raw_url = anchor_tag['href']
+                            if not raw_url:
+                                print(f"Warning: No URL found for article: {title}")
+                                current = current.find_next('h3')
+                                continue
+                                
+                            parsed_url = urlparse(raw_url)
+                            url = urlunparse((parsed_url.scheme, parsed_url.netloc, parsed_url.path, parsed_url.params, '', ''))
 
-        # Extract articles from the Headlines & Launches section
-        articles = []
-        sections = soup.find_all('h3')
-        print(f"Found {len(sections)} sections")
+                            all_articles.append({
+                                'title': title,
+                                'summary': summary_text,
+                                'url': url,
+                                'date': date_str,
+                                'day': current_date.strftime('%A')  # Add day name for better organization
+                            })
+                            articles_for_day += 1
+                            print(f"Added article {articles_for_day} for {date_str}: {title}")
+                            
+                            # Safety check - TLDR typically has 3 articles per day
+                            if articles_for_day >= 3:
+                                print(f"Reached 3 articles for {date_str}, moving to next day")
+                                break
+                                
+                        current = current.find_next('h3')
+                    
+                    print(f"Total articles found for {date_str}: {articles_for_day}")
+                else:
+                    print(f"Warning: Could not find Headlines & Launches section for {date_str}")
+            else:
+                print(f"Warning: Could not fetch TLDR for {date_str} (Status code: {response.status_code})")
 
-        # Find the Headlines & Launches section
-        headlines_section = None
-        for section in sections:
-            if section.text.strip() == "Headlines & Launches":
-                headlines_section = section
-                break
+            # Move to next day
+            current_date += timedelta(days=1)
 
-        if headlines_section:
-            print("Found Headlines & Launches section")
-            # Get all h3 elements after Headlines & Launches until the next section
-            current = headlines_section.find_next('h3')
-            while current and current.text.strip() != "Research & Innovation":
-                title_text = current.text.strip()
-                if '(' in title_text and ')' in title_text:
-                    # Split into title and reading time
-                    parts = title_text.rsplit('(', 1)
-                    title = parts[0].strip()
-                    # Find the anchor tag containing or related to the headline (h3 is inside a)
-                    anchor_tag = current.find_parent('a')
-                    # Find the div.newsletter-html that is the immediate next sibling of the anchor tag
-                    summary_div = anchor_tag.find_next_sibling('div', class_='newsletter-html') if anchor_tag else None
-                    summary_text = summary_div.text.strip() if summary_div else '' # Get stripped text for actual use
-                    # Get the URL and clean it
-                    raw_url = anchor_tag['href'] if anchor_tag else '' # Get URL from the anchor tag
-                    if raw_url:
-                        parsed_url = urlparse(raw_url)
-                        # Reconstruct URL without query parameters or fragment
-                        url = urlunparse((parsed_url.scheme, parsed_url.netloc, parsed_url.path, parsed_url.params, '', ''))
-                    else:
-                        url = ''
-
-                    articles.append({
-                        'title': title,
-                        'summary': summary_text,
-                        'url': url
-                    })
-                    print(f"Added article: {title}")
-                current = current.find_next('h3')
-        else:
-            print("Warning: Could not find Headlines & Launches section")
-
-        print(f"Total articles found: {len(articles)}")
-        return articles
+        print(f"\nTotal articles found across all weekdays: {len(all_articles)}")
+        print("Articles by day:")
+        for day in ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']:
+            day_articles = [a for a in all_articles if a['day'] == day]
+            print(f"{day}: {len(day_articles)} articles")
+            
+        return all_articles
     except Exception as e:
         print(f"Error in get_tldr_articles: {str(e)}")
         raise
@@ -351,6 +415,40 @@ Article:
         print(f"Error generating bullet points: {str(e)}")
         raise
 
+
+def format_global_articles_by_day(articles_list):
+    """Format global articles grouped by weekday for HTML email."""
+    if not articles_list:
+        return "<div class='no-updates'><p style='color: #666; font-style: italic;'>No global AI updates available for this week.</p></div>"
+    days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
+    html_output = ""
+    for day in days:
+        day_articles = [a for a in articles_list if a.get('day') == day]
+        if not day_articles:
+            continue
+        html_output += f"<h3 style='color:#5D3FD3;margin-top:30px;margin-bottom:10px;'>{day}</h3>"
+        for article in day_articles:
+            escaped_summary = html.escape(str(article.get('summary', '')).strip())
+            summary_lines = escaped_summary.split('\n')
+            bullet_lines = []
+            for line in summary_lines:
+                line = line.strip()
+                if line and not line.startswith('Here are') and not line.startswith('Anthropic'):
+                    line = re.sub(r'<[^>]*>', '', line)
+                    line = re.sub(r'style="[^"]*"', '', line)
+                    bullet_lines.append(line)
+            list_items = "".join(
+                f'<li style="color: #333;">{line.strip("-* ")}</li>'
+                for line in bullet_lines
+            )
+            html_output += f"""
+                <div class='article'>
+                    <h4>{html.escape(article.get('title', 'No Title'))}</h4>
+                    <ul style='color: #333;'>{list_items}</ul>
+                    <p class='read-more'><a href='{html.escape(article.get('url', '#'))}' target='_blank'>Read more →</a></p>
+                </div>
+            """
+    return html_output or "<div class='no-updates'><p style='color: #666; font-style: italic;'>No global AI updates available for this week.</p></div>"
 
 def format_articles_html(articles_list, section_type=""):
     """Format articles into HTML with improved error handling and messaging."""
@@ -429,10 +527,10 @@ def send_bullet_points_email(global_articles_data, australian_articles_data):
         aet_now = datetime.now(aet_tz)
         
         # Use AET for display, but keep ET in subject for reference
-        msg['Subject'] = f"Daily AI News Summary - {et_now.strftime('%Y-%m-%d')} (ET)"
+        msg['Subject'] = f"Weekly AI News Summary - {et_now.strftime('%Y-%m-%d')} (ET)"
         
         # Format articles with section type for appropriate messaging
-        global_html = format_articles_html(global_articles_data, "Global")
+        global_html = format_global_articles_by_day(global_articles_data)
         australian_html = format_articles_html(australian_articles_data, "Australian")
 
         # HTML Body with improved styling and logo
@@ -663,7 +761,7 @@ def send_bullet_points_email(global_articles_data, australian_articles_data):
                 msg.attach(img)
 
         print("Connecting to SMTP server for bullet points email...")
-        server = smtplib.SMTP_SSL('mail.inventico.io', 465)
+        server = smtplib.SMTP_SSL('mail.responsibleaiaustralia.com.au', 465)
         print("Logging in...")
         server.login(SENDER_EMAIL, SENDER_PASSWORD)
         print("Sending bullet points email...")
@@ -675,11 +773,20 @@ def send_bullet_points_email(global_articles_data, australian_articles_data):
         print(f"Error sending bullet points email: {str(e)}")
         raise
 
+def should_send_email():
+    """Check if we should send the email (only on Mondays, Australia/Sydney time)."""
+    aet_tz = pytz.timezone('Australia/Sydney')
+    aet_now = datetime.now(aet_tz)
+    return aet_now.weekday() == 0  # 0 = Monday
 
 def main():
     """Main function to fetch news, generate content, and send emails."""
     try:
         print("Starting main process...")
+        # Only run on Mondays (Australia/Sydney time)
+        if not should_send_email():
+            print("Not Monday in Australia/Sydney - skipping email generation.")
+            return
         
         # Lists to hold generated content
         global_bullet_points = []
@@ -695,12 +802,13 @@ def main():
 
         if global_articles:
             print("\nGenerating global content...")
-            num_global_articles = min(len(global_articles), 3)
-            for i in range(num_global_articles):
-                article = global_articles[i]
+            # Sort articles by date (most recent first)
+            global_articles.sort(key=lambda x: x.get('date', ''), reverse=True)
+            for article in global_articles:
                 try:
                     bullets, url = generate_bullet_points(article, is_australian=False)
-                    global_bullet_points.append({'summary': bullets, 'url': url, 'title': article['title']})
+                    global_bullet_points.append({'summary': bullets, 'url': url, 'title': article['title'], 'day': article.get('day')})
+                    time.sleep(3)
                 except Exception as e:
                     print(f"Failed to generate bullet points for global article '{article.get('title', 'N/A')}': {e}")
 
@@ -714,12 +822,16 @@ def main():
 
         if australian_articles:
             print("\nGenerating Australian content...")
-            num_aus_articles = min(len(australian_articles), 3)
+            # Sort by relevance score and date
+            australian_articles.sort(key=lambda x: (x['relevance_score'], x['publishedAt']), reverse=True)
+            # Take top 5 most relevant articles
+            num_aus_articles = min(len(australian_articles), 5)
             for i in range(num_aus_articles):
                 article = australian_articles[i]
                 try:
                     bullets, url = generate_bullet_points(article, is_australian=True)
                     aus_bullet_points.append({'summary': bullets, 'url': url, 'title': article['title']})
+                    time.sleep(3)
                 except Exception as e:
                     print(f"Failed to generate bullet points for Australian article '{article.get('title', 'N/A')}': {e}")
 
