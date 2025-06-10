@@ -40,7 +40,11 @@ pip install -r requirements.txt
   - `GEMINI_API_KEY`: Your Google Gemini API key
   - `SENDER_EMAIL`: Your Gmail address
   - `SENDER_PASSWORD`: Your Gmail app password
-  - `RECIPIENT_EMAIL`: Recipient's email address
+  - `RECIPIENT_EMAIL_BULLETS`: Recipient's email address
+    - `RECIPIENT_EMAIL_LINKEDIN`: Recipient for LinkedIn posts
+    - `NEWS_API_KEY`: News API key
+    - `SMTP_SERVER`: SMTP server host
+    - `SMTP_PORT`: SMTP server port
 
 The GitHub Action will run automatically at 6am AEST (8pm UTC) every day.
 
@@ -56,7 +60,11 @@ python daily_emailer.py
 - `GEMINI_API_KEY`: Google Gemini API key for AI content generation
 - `SENDER_EMAIL`: Gmail address to send from
 - `SENDER_PASSWORD`: Gmail app password (not your regular password)
-- `RECIPIENT_EMAIL`: Email address to receive the posts
+- `RECIPIENT_EMAIL_BULLETS`: Email address to receive the posts
+- `RECIPIENT_EMAIL_LINKEDIN`: Email address to receive LinkedIn posts
+- `NEWS_API_KEY`: News API key for Australian news
+- `SMTP_SERVER`: SMTP server host
+- `SMTP_PORT`: SMTP server port
 
 ## Contributing
 
